@@ -4,551 +4,302 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3DGS 场景查看器</title>
-<link rel="icon" href="/static/favicon.png" type="image/png">
-<link rel="shortcut icon" href="/static/favicon.ico">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0a0a; overflow: hidden; font-family: -apple-system, 'Segoe UI', sans-serif; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-
-  #loader {
-    position: fixed; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; z-index: 20;
-    background: radial-gradient(ellipse at center, #141414 0%, #0a0a0a 100%);
-    transition: opacity 0.8s, visibility 0.8s;
+  canvas { display: block; }
+  #status {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #888; font-size: 14px; z-index: 10; pointer-events: none;
   }
-  #loader.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
-  #loader h1 { color: #fff; font-size: 22px; font-weight: 500; margin-bottom: 6px; letter-spacing: -0.3px; }
-  #loader p { color: #666; font-size: 13px; margin-bottom: 28px; }
-  .drop-zone {
-    border: 2px dashed rgba(255,255,255,0.12); border-radius: 14px;
-    padding: 40px 56px; text-align: center; cursor: pointer;
-    transition: all 0.3s; background: rgba(255,255,255,0.02);
-    position: relative; overflow: hidden;
-  }
-  .drop-zone:hover { border-color: rgba(91,141,239,0.3); background: rgba(91,141,239,0.04); }
-  .drop-zone .icon { font-size: 36px; margin-bottom: 10px; position: relative; z-index: 1; }
-  .drop-zone .label { color: #aaa; font-size: 14px; position: relative; z-index: 1; }
-  .drop-zone .hint { color: #555; font-size: 11px; margin-top: 6px; position: relative; z-index: 1; }
-  #progress-bar { width: 260px; height: 2px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 20px; overflow: hidden; display: none; }
-  #progress-fill { height: 100%; width: 0%; background: #5b8def; border-radius: 2px; transition: width 0.3s; }
-  #progress-text { color: #555; font-size: 11px; margin-top: 8px; display: none; }
-
   #hud {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;
-    padding: 10px 20px; color: rgba(255,255,255,0.5); font-size: 11px;
-    text-align: center; user-select: none; pointer-events: none;
-    transition: opacity 0.8s; z-index: 10;
-    white-space: nowrap;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+    padding: 8px 16px; color: rgba(255,255,255,0.5); font-size: 11px;
+    text-align: center; user-select: none; z-index: 10;
   }
-  #hud kbd {
-    display: inline-block; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 3px; padding: 0 5px; font-family: inherit; font-size: 10px;
-    line-height: 18px; margin: 0 1px; min-width: 20px; color: rgba(255,255,255,0.6);
-  }
-  #hud .sep { color: rgba(255,255,255,0.12); margin: 0 5px; }
-
   #toolbar {
     position: fixed; top: 14px; right: 16px; display: flex; gap: 6px; z-index: 10;
   }
   #toolbar button {
-    background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 7px; color: rgba(255,255,255,0.45); padding: 6px 12px;
-    font-size: 11px; cursor: pointer; transition: all 0.2s;
-    backdrop-filter: blur(8px);
+    background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px; color: rgba(255,255,255,0.5); padding: 5px 10px;
+    font-size: 11px; cursor: pointer;
   }
-  #toolbar button:hover { background: rgba(255,255,255,0.08); color: #fff; }
-
-  #info {
-    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
-    color: rgba(255,255,255,0.15); font-size: 11px; z-index: 10;
-    text-align: center; pointer-events: none; display: none;
-  }
-  #fps { position: fixed; top: 16px; left: 16px; color: rgba(255,255,255,0.15); font-size: 10px; font-family: monospace; z-index: 10; pointer-events: none; }
+  #toolbar button:hover { background: rgba(255,255,255,0.1); color: #fff; }
 </style>
 </head>
 <body>
 
-<div id="loader">
-  <h1>场景查看器</h1>
-  <p>Gaussian Splatting · 本地部署</p>
-  <div class="drop-zone" id="dropZone">
-    <div class="icon">&#x26F6;</div>
-    <div class="label">拖拽 <strong>.splat</strong> 文件到此处</div>
-    <div class="hint">或点击选择</div>
-  </div>
-  <input type="file" id="fileInput" accept=".splat,.ply" hidden>
-  <div id="progress-bar"><div id="progress-fill"></div></div>
-  <div id="progress-text"></div>
-</div>
-
-<div id="hud">
-  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 漫游 &nbsp;<span class="sep">·</span>&nbsp;
-  拖拽环视 &nbsp;<span class="sep">·</span>&nbsp;
-  滚轮调速度 &nbsp;<span class="sep">·</span>&nbsp;
-  <kbd>Shift</kbd> 加速 &nbsp;<span class="sep">·</span>&nbsp;
-  <kbd>H</kbd> 隐藏
-</div>
-<div id="fps">-- fps</div>
+<div id="status">加载中...</div>
+<div id="hud">鼠标拖拽旋转 · 滚轮缩放 · 右键平移 · 双击重置</div>
 <div id="toolbar">
-  <button id="btnReset">&#x21BA; 重置</button>
-  <button id="btnFullscreen">&#x26F6; 全屏</button>
+  <button id="btnReset">重置视角</button>
 </div>
-<div id="info"></div>
 
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    "three": "/static/node_modules/three/build/three.module.js",
+    "three/addons/": "/static/node_modules/three/examples/jsm/"
   }
 }
 </script>
 
 <script type="module">
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-class SplatViewer {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(55, canvas.width / canvas.height, 0.05, 500);
-    this.camera.position.set(0, 1.6, 3);
+const statusEl = document.getElementById('status');
 
-    this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: false, alpha: false, powerPreference: "high-performance",
-    });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.setSize(canvas.width, canvas.height);
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+// ─── 场景初始化 ────────────────────────────────────────────────
+const canvas = document.createElement('canvas');
+document.body.prepend(canvas);
 
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    const bloom = new UnrealBloomPass(
-      new THREE.Vector2(canvas.width, canvas.height), 0.15, 0.3, 0.05
-    );
-    this.composer.addPass(bloom);
-    this.composer.addPass(new OutputPass());
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x111111);
 
-    this.splatMesh = null;
-    this.splatData = null;
-    this.sceneCenter = new THREE.Vector3(0, 0, 0);
-    this.sceneRadius = 3;
-    this.yaw = -Math.PI / 4;
-    this.pitch = -0.15;
-    this.moveSpeed = 2.0;
-    this.keys = { w: false, a: false, s: false, d: false, shift: false };
-    this.clock = new THREE.Clock();
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 500);
+camera.position.set(0, 1.5, 4);
 
-    this.setupControls();
-    window.addEventListener('resize', () => this.resize());
+// 添加一个微弱的网格帮助感知空间
+const grid = new THREE.GridHelper(10, 20, 0x333333, 0x1a1a1a);
+scene.add(grid);
+
+// ─── OrbitControls ─────────────────────────────────────────────
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.update();
+
+// ─── Splat 渲染 ────────────────────────────────────────────────
+let splatMesh = null;
+
+function parseSplat(buffer) {
+  const count = Math.floor(buffer.byteLength / 32);
+  const view = new DataView(buffer);
+  statusEl.textContent = `解析 ${count} 个高斯点...`;
+
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 4);
+  const scales = new Float32Array(count * 3);
+  const quats = new Float32Array(count * 4);
+  const opacities = new Float32Array(count);
+
+  for (let i = 0; i < count; i++) {
+    const o = i * 32;
+    positions[i * 3]     = view.getFloat32(o + 0, true);
+    positions[i * 3 + 1] = view.getFloat32(o + 4, true);
+    positions[i * 3 + 2] = view.getFloat32(o + 8, true);
+
+    // SH DC (RGB) — 直接用 0 阶球谐系数
+    colors[i * 4]     = Math.max(0, view.getUint8(o + 12) / 255);
+    colors[i * 4 + 1] = Math.max(0, view.getUint8(o + 13) / 255);
+    colors[i * 4 + 2] = Math.max(0, view.getUint8(o + 14) / 255);
+    colors[i * 4 + 3] = view.getUint8(o + 15) / 255;
+
+    scales[i * 3]     = Math.abs(view.getFloat32(o + 16, true));
+    scales[i * 3 + 1] = Math.abs(view.getFloat32(o + 20, true));
+    scales[i * 3 + 2] = Math.abs(view.getFloat32(o + 24, true));
+
+    quats[i * 4]     = (view.getUint8(o + 28) - 128) / 128;
+    quats[i * 4 + 1] = (view.getUint8(o + 29) - 128) / 128;
+    quats[i * 4 + 2] = (view.getUint8(o + 30) - 128) / 128;
+    quats[i * 4 + 3] = (view.getUint8(o + 31) - 128) / 128;
   }
 
-  async loadSplat(url) {
+  return { positions, colors, scales, quats, opacities, count };
+}
+
+function createSplatMesh(data) {
+  if (splatMesh) {
+    scene.remove(splatMesh);
+    splatMesh.geometry.dispose();
+    splatMesh.material.dispose();
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+  geo.setAttribute('color',     new THREE.BufferAttribute(data.colors, 4));
+  geo.setAttribute('scale',     new THREE.BufferAttribute(data.scales, 3));
+  geo.setAttribute('quat',      new THREE.BufferAttribute(data.quats, 4));
+
+  // compute bounding sphere
+  geo.computeBoundingSphere();
+  const center = geo.boundingSphere.center;
+  const radius = geo.boundingSphere.radius;
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uFocal:    { value: new THREE.Vector2(1, 1) },
+      uViewport: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+    },
+    vertexShader: /* glsl */ `
+      attribute vec4 quat;
+      attribute vec3 scale;
+      attribute vec4 color;
+      varying vec4 vColor;
+      varying float vOpacity;
+      varying mat2 vCov2D;
+      uniform vec2 uFocal;
+      uniform vec2 uViewport;
+
+      mat3 quatToMat3(vec4 q) {
+        float qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+        float x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
+        float xx = qx * x2, yy = qy * y2, zz = qz * z2;
+        float xy = qx * y2, xz = qx * z2, yz = qy * z2;
+        float wx = qw * x2, wy = qw * y2, wz = qw * z2;
+        return mat3(
+          1.0 - (yy + zz), xy - wz,         xz + wy,
+          xy + wz,         1.0 - (xx + zz), yz - wx,
+          xz - wy,         yz + wx,         1.0 - (xx + yy)
+        );
+      }
+
+      void main() {
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPos;
+        gl_PointSize = 20.0; // will be clipped by fragment shader
+
+        vColor = color;
+        vOpacity = color.a;
+
+        mat3 R = quatToMat3(quat);
+        mat3 S = mat3(scale.x, 0, 0, 0, scale.y, 0, 0, 0, scale.z);
+        mat3 W = mat3(modelViewMatrix);
+        mat3 M = W * R * S;
+        mat3 cov3D = M * transpose(M);
+
+        float z = max(abs(mvPos.z), 0.001);
+        float iz = 1.0 / z;
+        float fx = uFocal.x * uViewport.x * 0.5;
+        float fy = uFocal.y * uViewport.y * 0.5;
+
+        float j00 = fx * iz;
+        float j02 = -fx * mvPos.x * iz * iz;
+        float j11 = fy * iz;
+        float j12 = -fy * mvPos.y * iz * iz;
+
+        float c00 = cov3D[0][0], c01 = cov3D[0][1], c02 = cov3D[0][2];
+        float c11 = cov3D[1][1], c12 = cov3D[1][2], c22 = cov3D[2][2];
+
+        vCov2D[0][0] = j00*j00*c00 + 2.0*j00*j02*c02 + j02*j02*c22 + 0.3;
+        vCov2D[0][1] = j00*j11*c01 + j00*j12*c02 + j02*j11*c12 + j02*j12*c22;
+        vCov2D[1][0] = vCov2D[0][1];
+        vCov2D[1][1] = j11*j11*c11 + 2.0*j11*j12*c12 + j12*j12*c22 + 0.3;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec4 vColor;
+      varying float vOpacity;
+      varying mat2 vCov2D;
+
+      void main() {
+        vec2 pt = gl_PointCoord - 0.5;
+        float a = vCov2D[0][0];
+        float b = vCov2D[0][1];
+        float d = vCov2D[1][1];
+        float det = max(a * d - b * b, 0.0001);
+        float invDet = 1.0 / det;
+        float dist2 = invDet * (d * pt.x * pt.x - 2.0 * b * pt.x * pt.y + a * pt.y * pt.y);
+        float alpha = exp(-0.5 * dist2) * vOpacity;
+        if (alpha < 0.003) discard;
+        gl_FragColor = vec4(vColor.rgb, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+  });
+
+  splatMesh = new THREE.Points(geo, mat);
+  splatMesh.frustumCulled = false;
+  scene.add(splatMesh);
+
+  // 更新相机位置到场景中心
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y + Math.max(radius * 0.5, 1), center.z + radius * 2);
+  controls.update();
+
+  // 更新焦距 uniform
+  const fov = camera.fov * Math.PI / 180;
+  const fy = 1.0 / Math.tan(fov / 2);
+  mat.uniforms.uFocal.value.set(fy, fy);
+
+  statusEl.textContent = '';
+}
+
+function updateFocal() {
+  if (!splatMesh) return;
+  const fov = camera.fov * Math.PI / 180;
+  const fy = 1.0 / Math.tan(fov / 2);
+  splatMesh.material.uniforms.uFocal.value.set(fy, fy);
+  splatMesh.material.uniforms.uViewport.value.set(
+    renderer.domElement.width, renderer.domElement.height
+  );
+}
+
+// ─── 加载 ──────────────────────────────────────────────────────
+async function loadSplat(url) {
+  try {
+    statusEl.textContent = '下载模型...';
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const buf = await resp.arrayBuffer();
-    this.parseSplat(buf);
-  }
-
-  loadSplatFromBuffer(buf) { this.parseSplat(buf); }
-
-  parseSplat(buffer) {
-    const vertexCount = Math.floor(buffer.byteLength / 32);
-    const view = new DataView(buffer);
-    console.log(`加载 ${vertexCount} 个高斯点`);
-
-    const positions = new Float32Array(vertexCount * 3);
-    const colors = new Float32Array(vertexCount * 3);
-    const opacities = new Float32Array(vertexCount);
-    const scales = new Float32Array(vertexCount * 3);
-    const quats = new Float32Array(vertexCount * 4);
-
-    let maxScale = 0;
-    for (let i = 0; i < vertexCount; i++) {
-      const o = i * 32;
-      const px = view.getFloat32(o, true);
-      const py = view.getFloat32(o + 4, true);
-      positions[i * 3] = px;
-      positions[i * 3 + 1] = py;
-      positions[i * 3 + 2] = view.getFloat32(o + 8, true);
-
-      colors[i * 3] = view.getUint8(o + 12) / 255;
-      colors[i * 3 + 1] = view.getUint8(o + 13) / 255;
-      colors[i * 3 + 2] = view.getUint8(o + 14) / 255;
-      opacities[i] = view.getUint8(o + 15) / 255;
-
-      const sx = Math.abs(view.getFloat32(o + 16, true));
-      const sy = Math.abs(view.getFloat32(o + 20, true));
-      const sz = Math.abs(view.getFloat32(o + 24, true));
-      scales[i * 3] = sx;
-      scales[i * 3 + 1] = sy;
-      scales[i * 3 + 2] = sz;
-      if (sx > maxScale) maxScale = sx;
-      if (sy > maxScale) maxScale = sy;
-      if (sz > maxScale) maxScale = sz;
-
-      // 解包四元数: uint8 [0,255] → float [-1,1]
-      quats[i * 4] = (view.getUint8(o + 28) - 128) / 128;
-      quats[i * 4 + 1] = (view.getUint8(o + 29) - 128) / 128;
-      quats[i * 4 + 2] = (view.getUint8(o + 30) - 128) / 128;
-      quats[i * 4 + 3] = (view.getUint8(o + 31) - 128) / 128;
-    }
-
-    this.splatData = {
-      positions, colors, opacities, scales, quats,
-      count: vertexCount, maxScale
-    };
-    this.createMesh();
-  }
-
-  createMesh() {
-    if (this.splatMesh) {
-      this.scene.remove(this.splatMesh);
-      this.splatMesh.geometry.dispose();
-      this.splatMesh.material.dispose();
-    }
-
-    const d = this.splatData;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(d.colors, 3));
-    geo.setAttribute('scale', new THREE.BufferAttribute(d.scales, 3));
-    geo.setAttribute('quat', new THREE.BufferAttribute(d.quats, 4));
-    geo.setAttribute('opacity', new THREE.BufferAttribute(d.opacities, 1));
-
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        uFocal: { value: new THREE.Vector2(1, 1) },
-        uViewport: { value: new THREE.Vector2(1, 1) },
-      },
-      vertexShader: /* glsl */ `
-        attribute vec3 scale;
-        attribute vec4 quat;
-        attribute float opacity;
-        attribute vec3 color;
-
-        varying vec4 vColor;
-        varying float vOpacity;
-        varying mat2 vCov2D;
-
-        uniform vec2 uFocal;
-        uniform vec2 uViewport;
-
-        mat3 quatToMat3(vec4 q) {
-          float qx = q.x, qy = q.y, qz = q.z, qw = q.w;
-          float x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
-          float xx = qx * x2, yy = qy * y2, zz = qz * z2;
-          float xy = qx * y2, xz = qx * z2, yz = qy * z2;
-          float wx = qw * x2, wy = qw * y2, wz = qw * z2;
-          return mat3(
-            1.0 - (yy + zz), xy - wz,         xz + wy,
-            xy + wz,         1.0 - (xx + zz), yz - wx,
-            xz - wy,         yz + wx,         1.0 - (xx + yy)
-          );
-        }
-
-        void main() {
-          vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * mvPos;
-
-          vColor = vec4(color, 1.0);
-          vOpacity = opacity;
-
-          // 3D 协方差 = W * R * S * S^T * R^T * W^T
-          mat3 R = quatToMat3(quat);
-          mat3 S = mat3(scale.x, 0, 0, 0, scale.y, 0, 0, 0, scale.z);
-          mat3 W = mat3(modelViewMatrix);
-          mat3 M = W * R * S;
-          mat3 cov3D = M * transpose(M);
-
-          // 投影 Jacobian J (2x3): 将视空间 → 屏幕空间
-          float z = mvPos.z;
-          float iz = 1.0 / max(abs(z), 0.001);
-          float fx = uFocal.x * uViewport.x * 0.5;
-          float fy = uFocal.y * uViewport.y * 0.5;
-
-          // J = [[fx/z, 0, -fx*x/z^2], [0, fy/z, -fy*y/z^2]]
-          float j00 = fx * iz;
-          float j02 = -fx * mvPos.x * iz * iz;
-          float j11 = fy * iz;
-          float j12 = -fy * mvPos.y * iz * iz;
-
-          // Σ_2D = J * cov3D * J^T (2x2)
-          // 展开: Σ_ij = sum_k sum_l J_ik * cov_kl * J_jl
-          float cov00 = cov3D[0][0], cov01 = cov3D[0][1], cov02 = cov3D[0][2];
-          float cov11 = cov3D[1][1], cov12 = cov3D[1][2];
-          float cov22 = cov3D[2][2];
-          // cov 对称: cov10=cov01, cov20=cov02, cov21=cov12
-
-          vCov2D[0][0] = j00*j00*cov00 + 2.0*j00*j02*cov02 + j02*j02*cov22;
-          vCov2D[0][1] = j00*j11*cov01 + j00*j12*cov02 + j02*j11*cov12 + j02*j12*cov22;
-          vCov2D[1][0] = vCov2D[0][1];
-          vCov2D[1][1] = j11*j11*cov11 + 2.0*j11*j12*cov12 + j12*j12*cov22;
-
-          // 防止退化
-          vCov2D[0][0] += 0.3;
-          vCov2D[1][1] += 0.3;
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        varying vec4 vColor;
-        varying float vOpacity;
-        varying mat2 vCov2D;
-
-        void main() {
-          vec2 pt = gl_PointCoord - 0.5;
-
-          // Σ^{-1} = (1/det) * [[d, -b], [-c, a]]
-          float a = vCov2D[0][0];
-          float b = vCov2D[0][1];
-          float d = vCov2D[1][1];
-          float det = a * d - b * b;
-          if (det < 0.0001) det = 0.0001;
-          float invDet = 1.0 / det;
-
-          float dist2 = invDet * (d * pt.x * pt.x - 2.0 * b * pt.x * pt.y + a * pt.y * pt.y);
-
-          float alpha = exp(-0.5 * dist2) * vOpacity;
-          if (alpha < 0.004) discard;
-
-          gl_FragColor = vec4(vColor.rgb, alpha);
-        }
-      `,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.NormalBlending,
-    });
-
-    this.splatMesh = new THREE.Points(geo, mat);
-    this.splatMesh.frustumCulled = false;
-    this.scene.add(this.splatMesh);
-
-    // 计算包围球
-    geo.computeBoundingSphere();
-    if (geo.boundingSphere) {
-      const c = geo.boundingSphere.center;
-      const r = geo.boundingSphere.radius;
-      this.sceneCenter.copy(c);
-      this.sceneRadius = r;
-      this.camera.position.set(c.x, c.y + Math.max(r * 0.5, 1.6), c.z + r * 1.8);
-    }
-
-    // 更新相机相关的 uniform + 一次性深度排序
-    this.updateFocalUniform();
-    this.sortByDepth();
-
-    document.getElementById('loader').classList.add('hidden');
-    document.getElementById('info').style.display = 'block';
-  }
-
-  updateFocalUniform() {
-    if (!this.splatMesh) return;
-    // 从相机内参推导焦距（归一化设备坐标）
-    const fov = this.camera.fov * Math.PI / 180;
-    const fy = 1.0 / Math.tan(fov / 2);
-    const fx = fy; // 假设方形像素
-    this.splatMesh.material.uniforms.uFocal.value.set(fx, fy);
-    this.splatMesh.material.uniforms.uViewport.value.set(
-      this.renderer.domElement.width,
-      this.renderer.domElement.height
-    );
-  }
-
-  setupControls() {
-    document.addEventListener('keydown', (e) => {
-      const k = e.key.toLowerCase();
-      if (k in this.keys) this.keys[k] = true;
-      if (e.key === 'h') {
-        const hud = document.getElementById('hud');
-        hud.style.opacity = hud.style.opacity === '0' ? '1' : '0';
-      }
-    });
-    document.addEventListener('keyup', (e) => {
-      const k = e.key.toLowerCase();
-      if (k in this.keys) this.keys[k] = false;
-    });
-
-    let dragging = false, lx = 0, ly = 0;
-    this.canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) { dragging = true; lx = e.clientX; ly = e.clientY; }
-    });
-    window.addEventListener('mouseup', () => { dragging = false; });
-    window.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      this.yaw -= (e.clientX - lx) * 0.004;
-      this.pitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch - (e.clientY - ly) * 0.004));
-      lx = e.clientX; ly = e.clientY;
-    });
-
-    this.canvas.addEventListener('wheel', (e) => {
-      this.moveSpeed = Math.max(0.3, Math.min(15, this.moveSpeed - e.deltaY * 0.008));
-    }, { passive: true });
-    this.canvas.addEventListener('dblclick', () => this.resetView());
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  }
-
-  sortByDepth() {
-    if (!this.splatData || !this.splatMesh) return;
-    const d = this.splatData;
-    const positions = this.splatMesh.geometry.attributes.position.array;
-    const count = d.count;
-
-    // 计算相机当前视线方向（一次性排序用）
-    const camDir = new THREE.Vector3();
-    this.camera.getWorldDirection(camDir);
-
-    if (!this._sortIndices || this._sortIndices.length !== count) {
-      this._sortIndices = new Uint32Array(count);
-      for (let i = 0; i < count; i++) this._sortIndices[i] = i;
-    }
-    if (!this._sortDepths || this._sortDepths.length !== count) {
-      this._sortDepths = new Float32Array(count);
-    }
-
-    for (let i = 0; i < count; i++) {
-      this._sortDepths[i] =
-        positions[i * 3] * camDir.x +
-        positions[i * 3 + 1] * camDir.y +
-        positions[i * 3 + 2] * camDir.z;
-    }
-
-    // 远处先渲染（painter's algorithm）
-    this._sortIndices.sort((a, b) => this._sortDepths[b] - this._sortDepths[a]);
-
-    // 重排所有属性（仅加载时执行一次）
-    const attrs = ['position', 'color', 'scale', 'quat', 'opacity'];
-    for (const name of attrs) {
-      const attr = this.splatMesh.geometry.attributes[name];
-      if (!attr) continue;
-      const arr = attr.array;
-      const itemSize = attr.itemSize;
-      const sorted = new arr.constructor(count * itemSize);
-      for (let i = 0; i < count; i++) {
-        const src = this._sortIndices[i] * itemSize;
-        const dst = i * itemSize;
-        for (let j = 0; j < itemSize; j++) {
-          sorted[dst + j] = arr[src + j];
-        }
-      }
-      this.splatMesh.geometry.setAttribute(name, new THREE.BufferAttribute(sorted, itemSize));
-    }
-  }
-
-  update(dt) {
-    const spd = this.moveSpeed * (this.keys.shift ? 3.5 : 1) * Math.min(dt, 0.05);
-    const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    const right = new THREE.Vector3(fwd.z, 0, -fwd.x);
-    if (this.keys.w) this.camera.position.addScaledVector(fwd, spd);
-    if (this.keys.s) this.camera.position.addScaledVector(fwd, -spd);
-    if (this.keys.a) this.camera.position.addScaledVector(right, -spd);
-    if (this.keys.d) this.camera.position.addScaledVector(right, spd);
-
-    const lookDir = new THREE.Vector3(
-      Math.sin(this.yaw) * Math.cos(this.pitch),
-      Math.sin(this.pitch),
-      Math.cos(this.yaw) * Math.cos(this.pitch)
-    );
-    this.camera.lookAt(this.camera.position.clone().add(lookDir));
-
-    this.updateFocalUniform();
-    this.composer.render(dt);
-  }
-
-  resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
-    this.updateFocalUniform();
-  }
-
-  resetView() {
-    this.yaw = -Math.PI / 4;
-    this.pitch = -0.15;
-    const c = this.sceneCenter;
-    this.camera.position.set(c.x, c.y + Math.max(this.sceneRadius * 0.5, 1.6), c.z + this.sceneRadius * 1.8);
+    statusEl.textContent = `文件大小: ${(buf.byteLength / 1024).toFixed(0)} KB`;
+    const data = parseSplat(buf);
+    createSplatMesh(data);
+    grid.visible = false;
+  } catch (e) {
+    statusEl.textContent = '加载失败: ' + e.message;
+    console.error(e);
   }
 }
 
-// ─── 启动 ──────────────────────────────────────────────────────────
-const canvas = document.createElement('canvas');
-document.body.prepend(canvas);
-const app = new SplatViewer(canvas);
-
-let fc = 0, ft = 0;
-function animate(t) {
+// ─── 渲染循环 ──────────────────────────────────────────────────
+function animate() {
   requestAnimationFrame(animate);
-  app.update(app.clock.getDelta());
-  fc++;
-  if (t - ft > 1000) {
-    document.getElementById('fps').textContent = `${fc} fps`;
-    fc = 0; ft = t;
-  }
+  controls.update();
+  updateFocal();
+  renderer.render(scene, camera);
 }
-animate(0);
+animate();
 
-// ─── 文件加载 ──────────────────────────────────────────────────────
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const progressBar = document.getElementById('progress-bar');
-const progressFill = document.getElementById('progress-fill');
-const progressText = document.getElementById('progress-text');
-
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(91,141,239,0.3)'; });
-dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'rgba(255,255,255,0.12)'; });
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault(); dropZone.style.borderColor = 'rgba(255,255,255,0.12)';
-  const file = e.dataTransfer.files[0];
-  if (file) loadFile(file);
-});
-fileInput.addEventListener('change', (e) => {
-  if (e.target.files[0]) loadFile(e.target.files[0]);
+// ─── 事件 ──────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  updateFocal();
 });
 
-async function loadFile(file) {
-  progressBar.style.display = 'block';
-  progressText.style.display = 'block';
-  progressText.textContent = `加载 ${file.name}...`;
-
-  if (file.name.endsWith('.splat')) {
-    const buf = await file.arrayBuffer();
-    progressFill.style.width = '100%';
-    progressText.textContent = '渲染中...';
-    app.loadSplatFromBuffer(buf);
-    setTimeout(() => { progressBar.style.display = 'none'; progressText.style.display = 'none'; }, 400);
-  } else if (file.name.endsWith('.ply')) {
-    progressText.textContent = '.ply 格式暂不支持直接加载，请使用 .splat 格式';
+document.getElementById('btnReset').addEventListener('click', () => {
+  if (splatMesh) {
+    splatMesh.geometry.computeBoundingSphere();
+    const c = splatMesh.geometry.boundingSphere.center;
+    const r = splatMesh.geometry.boundingSphere.radius;
+    controls.target.copy(c);
+    camera.position.set(c.x, c.y + Math.max(r * 0.5, 1), c.z + r * 2);
+    controls.update();
+  } else {
+    controls.target.set(0, 0, 0);
+    camera.position.set(0, 1.5, 4);
+    controls.update();
   }
-}
-
-document.getElementById('btnReset').addEventListener('click', () => app.resetView());
-document.getElementById('btnFullscreen').addEventListener('click', () => {
-  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-  else document.exitFullscreen();
 });
 
+// ─── 自动加载 URL 参数指定的文件 ────────────────────────────────
 const params = new URLSearchParams(window.location.search);
 const splatUrl = params.get('splat');
 if (splatUrl) {
-  progressBar.style.display = 'block'; progressText.style.display = 'block';
-  progressText.textContent = '加载场景...';
-  app.loadSplat(splatUrl).catch(e => {
-    progressText.textContent = '加载失败，请直接拖拽 .splat 文件';
-  });
+  loadSplat(splatUrl);
 }
-
-console.log('3DGS Viewer 已启动 — 拖拽 .splat 文件查看');
 </script>
 </body>
 </html>

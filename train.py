@@ -190,6 +190,15 @@ class GaussianModel:
     def scales(self):
         return torch.exp(self.scales_log)
 
+    @property
+    def scene_extent(self):
+        """场景空间范围，用于 clamp scales。"""
+        if not hasattr(self, '_scene_extent'):
+            p_min = self.means.min(dim=0).values
+            p_max = self.means.max(dim=0).values
+            self._scene_extent = max((p_max - p_min).max().item(), 1.0)
+        return self._scene_extent
+
     def get_params(self):
         return {
             "means": self.means,
@@ -264,17 +273,35 @@ def run_colmap(images_dir: str, output_dir: str):
     sparse_dir = os.path.join(output_dir, "sparse", "0")
     os.makedirs(sparse_dir, exist_ok=True)
 
+    # 如果路径包含非 ASCII 字符（如中文），COLMAP 无法读取
+    # 创建 ASCII 临时符号链接目录解决
+    need_temp = any(ord(c) > 127 for c in images_dir)
+    if need_temp:
+        import tempfile
+        temp_img_dir = os.path.join(output_dir, "_images")
+        os.makedirs(temp_img_dir, exist_ok=True)
+        for f in os.listdir(images_dir):
+            if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")):
+                src = os.path.join(images_dir, f)
+                dst = os.path.join(temp_img_dir, f)
+                if not os.path.exists(dst):
+                    # 用拷贝而非符号链接（Windows 兼容性更好）
+                    import shutil
+                    shutil.copy2(src, dst)
+        colmap_image_dir = temp_img_dir
+        print(f"[COLMAP] 检测到中文路径，已复制图片到临时目录: {temp_img_dir}")
+    else:
+        colmap_image_dir = images_dir
+
     print("[COLMAP] 提取图像特征...")
     print("[COLMAP] 如果照片分辨率很高，这一步可能需要 5-30 分钟")
     subprocess.run([
         COLMAP_EXE, "feature_extractor",
         "--database_path", db_path,
-        "--image_path", images_dir,
+        "--image_path", colmap_image_dir,
         "--FeatureExtraction.use_gpu", "1",
         "--ImageReader.camera_model", "SIMPLE_RADIAL",
-        "--ImageReader.single_camera", "1",
         "--SiftExtraction.max_num_features", "8192",
-        "--SiftExtraction.max_image_size", "1600",
     ], check=True)
 
     print("[COLMAP] 特征匹配...")
@@ -288,18 +315,28 @@ def run_colmap(images_dir: str, output_dir: str):
     subprocess.run([
         COLMAP_EXE, "mapper",
         "--database_path", db_path,
-        "--image_path", images_dir,
+        "--image_path", colmap_image_dir,
         "--output_path", os.path.join(output_dir, "sparse"),
     ])
 
     sparse_parent = os.path.join(output_dir, "sparse")
     if not os.path.isdir(sparse_dir) or not os.listdir(sparse_dir):
-        dirs = sorted([d for d in os.listdir(sparse_parent)
-                        if os.path.isdir(os.path.join(sparse_parent, d))], key=int)
+        try:
+            dirs = sorted([d for d in os.listdir(sparse_parent)
+                            if os.path.isdir(os.path.join(sparse_parent, d))], key=int)
+        except (OSError, ValueError):
+            dirs = []
         if dirs:
             sparse_dir = os.path.join(sparse_parent, dirs[-1])
         else:
-            raise RuntimeError("COLMAP mapper 未能生成重建结果")
+            raise RuntimeError(
+                "COLMAP 稀疏重建失败 — 没有找到足够的匹配点对。\n"
+                "可能原因:\n"
+                "  1. 照片之间重叠度不够（需要 >60% 重叠）\n"
+                "  2. 照片数量不足（建议 30 张以上）\n"
+                "  3. 场景纹理太弱（白墙、天空等）\n"
+                "  4. 照片模糊或运动模糊"
+            )
 
     print("[COLMAP] 导出文本格式...")
     text_dir = os.path.join(output_dir, "sparse_text")
@@ -472,7 +509,7 @@ def train_3dgs(images_dir: str, colmap_text_dir: str, output_dir: str,
     optimizer = torch.optim.Adam([
         {"params": params["means"], "lr": 1.6e-4},
         {"params": params["quats"], "lr": 1e-3},
-        {"params": params["scales_log"], "lr": 5e-3},
+        {"params": params["scales_log"], "lr": 2e-3},
         {"params": params["opacities_logit"], "lr": 5e-2},
         {"params": params["colors_logit"], "lr": 2.5e-2},
     ], eps=1e-15)
@@ -503,7 +540,7 @@ def train_3dgs(images_dir: str, colmap_text_dir: str, output_dir: str,
             render_colors, render_alphas, meta = rasterization(
                 means=gaussians.means,
                 quats=F.normalize(gaussians.quats, dim=-1),
-                scales=gaussians.scales.clamp(min=1e-7),
+                scales=gaussians.scales.clamp(min=1e-7, max=gaussians.scene_extent * 0.05),
                 opacities=gaussians.opacities,
                 colors=gaussians.colors,
                 viewmats=viewmat,
@@ -520,7 +557,7 @@ def train_3dgs(images_dir: str, colmap_text_dir: str, output_dir: str,
             l1_loss = F.l1_loss(rendered, gt)
             ssim_loss = 0.2 * (1 - compute_ssim(rendered.permute(2, 0, 1).unsqueeze(0),
                                                  gt.permute(2, 0, 1).unsqueeze(0)))
-            loss = l1_loss + ssim_loss
+            loss = l1_loss + ssim_loss + 0.001 * gaussians.scales.mean()
 
         optimizer.zero_grad()
         scaler.scale(loss).backward()

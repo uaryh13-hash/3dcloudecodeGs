@@ -34,6 +34,9 @@ dist/
 # 安装完成标记
 .installed
 
+# npm 依赖（通过 npm install 安装）
+static/node_modules/
+
 # 系统文件
 Thumbs.db
 .DS_Store

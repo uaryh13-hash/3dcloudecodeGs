@@ -265,6 +265,20 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 # ─── 静态文件 ────────────────────────────────────────────────────────
+@app.get("/output/{filename}")
+async def serve_output(filename: str):
+    """Serve generated .splat / .ply files for the viewer."""
+    filepath = os.path.join(SCRIPT_DIR, "output", filename)
+    if os.path.isfile(filepath):
+        return FileResponse(filepath)
+    # try subdirectories
+    for d in sorted(os.listdir(os.path.join(SCRIPT_DIR, "output")), reverse=True):
+        p = os.path.join(SCRIPT_DIR, "output", d, filename)
+        if os.path.isfile(p):
+            return FileResponse(p)
+    from fastapi import HTTPException
+    raise HTTPException(404, f"File not found: {filename}")
+
 static_dir = os.path.join(SCRIPT_DIR, "static")
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
