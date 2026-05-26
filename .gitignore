@@ -31,6 +31,9 @@ dist/
 # Inno Setup 临时文件
 *.issproj
 
+# 安装完成标记
+.installed
+
 # 系统文件
 Thumbs.db
 .DS_Store
