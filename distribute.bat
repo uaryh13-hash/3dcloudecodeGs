@@ -27,11 +27,15 @@ mkdir "%PKG_DIR%\venv"
 :: 复制核心脚本
 echo 复制脚本文件...
 copy "%SCRIPT_DIR%train.py" "%PKG_DIR%\" >nul
+copy "%SCRIPT_DIR%app.py" "%PKG_DIR%\" >nul
 copy "%SCRIPT_DIR%viewer.html" "%PKG_DIR%\" >nul
 copy "%SCRIPT_DIR%run.bat" "%PKG_DIR%\" >nul
+copy "%SCRIPT_DIR%run_web.bat" "%PKG_DIR%\" >nul
 copy "%SCRIPT_DIR%setup.bat" "%PKG_DIR%\" >nul
 copy "%SCRIPT_DIR%download_colmap.bat" "%PKG_DIR%\" >nul
 copy "%SCRIPT_DIR%requirements.txt" "%PKG_DIR%\" >nul
+xcopy "%SCRIPT_DIR%templates" "%PKG_DIR%\templates\" /E /I /Q >nul 2>&1
+xcopy "%SCRIPT_DIR%static" "%PKG_DIR%\static\" /E /I /Q >nul 2>&1
 
 :: 复制 COLMAP (排除大文件中的无用内容)
 echo 复制 COLMAP (便携版)...
@@ -68,14 +72,17 @@ echo 创建使用说明...
     echo   1. 右键管理员运行 setup.bat（安装/更新 Python 依赖）
     echo      （需要网络，约 5-10 分钟）
     echo   2. 准备 30-100 张照片（覆盖每个角度）
-    echo   3. 把照片文件夹拖到 run.bat 上
-    echo   4. 等待训练完成（~30000 步约 1-2 小时）
-    echo   5. 打开 viewer.html，拖入 output\model.splat 查看
+    echo   3. 双击 run_web.bat 启动 Web 界面，浏览器打开 http://localhost:8080
+    echo   4. 选择照片 → 开始训练 → 查看 3D 结果
+    echo.
+    echo   也可以直接把照片文件夹拖到 run.bat 上（命令行模式）
     echo.
     echo 文件结构:
     echo   train.py              - 训练管线
+    echo   app.py                - Web 界面后端
     echo   viewer.html           - 3DGS 查看器
-    echo   run.bat               - 一键运行入口
+    echo   run_web.bat           - Web 界面入口（推荐）
+    echo   run.bat               - 命令行模式入口
     echo   setup.bat             - 环境安装
     echo   colmap\               - COLMAP SfM
     echo   venv\                 - Python 环境
