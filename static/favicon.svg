@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!-- 机身 -->
+  <rect x="30" y="38" width="60" height="70" rx="8" fill="#e8f4ff" stroke="#7ec8f0" stroke-width="2"/>
+  <!-- 机身高光 -->
+  <rect x="34" y="42" width="10" height="60" rx="4" fill="#ffffff" opacity="0.6"/>
+  <!-- 水桶 -->
+  <ellipse cx="60" cy="28" rx="24" ry="20" fill="#d0edff" stroke="#7ec8f0" stroke-width="2"/>
+  <path d="M36 28 Q36 6 60 4 Q84 6 84 28" fill="#d0edff" stroke="#7ec8f0" stroke-width="2"/>
+  <!-- 水桶高光 -->
+  <ellipse cx="54" cy="20" rx="6" ry="8" fill="#ffffff" opacity="0.4"/>
+  <!-- 水桶水纹 -->
+  <path d="M44 24 Q52 22 60 24 Q68 26 76 24" stroke="#a8d8f8" stroke-width="1.5" fill="none"/>
+  <path d="M46 30 Q54 28 62 30 Q70 32 74 30" stroke="#a8d8f8" stroke-width="1.5" fill="none"/>
+  <!-- 蓝色水龙头 (左) -->
+  <rect x="34" y="72" width="16" height="6" rx="3" fill="#4a9ff5"/>
+  <rect x="38" y="78" width="8" height="10" rx="2" fill="#4a9ff5"/>
+  <rect x="40" y="80" width="4" height="4" rx="1" fill="#ffffff" opacity="0.3"/>
+  <!-- 蓝色水龙头 (右) -->
+  <rect x="70" y="72" width="16" height="6" rx="3" fill="#4a9ff5"/>
+  <rect x="74" y="78" width="8" height="10" rx="2" fill="#4a9ff5"/>
+  <rect x="76" y="80" width="4" height="4" rx="1" fill="#ffffff" opacity="0.3"/>
+  <!-- 出水水滴 -->
+  <ellipse cx="42" cy="90" rx="3" ry="5" fill="#a8d8f8" opacity="0.8"/>
+  <ellipse cx="78" cy="90" rx="3" ry="5" fill="#a8d8f8" opacity="0.8"/>
+  <!-- 小水滴 -->
+  <ellipse cx="36" cy="94" rx="2" ry="3" fill="#c0e4ff" opacity="0.6"/>
+  <ellipse cx="84" cy="94" rx="2" ry="3" fill="#c0e4ff" opacity="0.6"/>
+  <!-- 接水盒 -->
+  <rect x="28" y="100" width="64" height="6" rx="3" fill="#d0edff" stroke="#7ec8f0" stroke-width="1.5"/>
+  <!-- 底座 -->
+  <rect x="24" y="106" width="72" height="4" rx="2" fill="#b0d8f0"/>
+</svg>

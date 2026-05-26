@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3DGS 训练工作室</title>
+<link rel="icon" href="/static/favicon.png" type="image/png">
+<link rel="shortcut icon" href="/static/favicon.ico">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #f5f6f8; color: #333;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+
+  /* ─── Header ─── */
+  header {
+    background: #fff; border-bottom: 1px solid #e8eaed;
+    padding: 16px 32px; display: flex; align-items: center;
+    justify-content: space-between; flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  header h1 { color: #1a1a2e; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  header h1 span { color: #4a7de0; }
+  header .subtitle { color: #999; font-size: 12px; }
+
+  /* ─── Layout ─── */
+  .container { display: flex; flex: 1; overflow: hidden; }
+  .sidebar {
+    width: 360px; min-width: 360px;
+    background: #fff; border-right: 1px solid #e8eaed;
+    display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fafbfc; }
+
+  /* ─── Panels ─── */
+  .panel { padding: 20px; border-bottom: 1px solid #eef0f2; }
+  .panel-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: #999; margin-bottom: 14px;
+  }
+
+  /* ─── Folder Picker ─── */
+  .folder-picker { margin-bottom: 4px; }
+  .folder-picker label {
+    display: block; padding: 24px 20px; border-radius: 10px;
+    border: 1.5px dashed #d0d5dd; text-align: center; cursor: pointer;
+    transition: all 0.25s; background: #fafbfc;
+  }
+  .folder-picker label:hover { border-color: #4a7de0; background: #f0f4ff; }
+  .folder-picker label .icon { font-size: 28px; }
+  .folder-picker label .label-text { color: #555; font-size: 13px; margin-top: 6px; }
+  .folder-picker label .hint { color: #aaa; font-size: 11px; margin-top: 4px; }
+  .folder-picker input { display: none; }
+  #folder-path {
+    font-size: 12px; color: #666; margin-top: 8px; word-break: break-all;
+    padding: 6px 10px; background: #f5f6f8; border-radius: 6px;
+  }
+  #folder-count { font-size: 11px; color: #888; margin-top: 4px; }
+
+  /* ─── Steps Input ─── */
+  .steps-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .steps-row label { font-size: 12px; color: #888; white-space: nowrap; }
+  .steps-row input {
+    flex: 1; background: #f5f6f8; border: 1px solid #d0d5dd;
+    border-radius: 6px; padding: 6px 10px; color: #333; font-size: 12px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .steps-row input:focus { border-color: #4a7de0; box-shadow: 0 0 0 2px rgba(74,125,224,0.1); }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    border: none; cursor: pointer; transition: all 0.2s; width: 100%;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: #4a7de0; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #3d6ec9; }
+  .btn-danger { background: #fff; color: #e74c3c; border: 1px solid #f0d0d0; }
+  .btn-danger:hover:not(:disabled) { background: #fef0f0; }
+  .btn-success { background: #fff; color: #27ae60; border: 1px solid #c8e6d0; }
+  .btn-success:hover:not(:disabled) { background: #f0faf4; }
+  .btn-secondary { background: #f5f6f8; color: #666; border: 1px solid #d0d5dd; }
+  .btn-secondary:hover:not(:disabled) { background: #e8eaed; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row .btn { width: auto; flex: 1; }
+
+  /* ─── Progress ─── */
+  .progress-section { display: none; }
+  .progress-section.active { display: block; }
+  .phase-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 500; margin-bottom: 10px;
+  }
+  .phase-colmap { background: #fff8e6; color: #d48a00; }
+  .phase-training { background: #e8f0fe; color: #4a7de0; }
+  .phase-exporting { background: #e6f9ed; color: #27ae60; }
+  .phase-done { background: #e6f9ed; color: #27ae60; }
+  .phase-error { background: #fef0f0; color: #e74c3c; }
+
+  .progress-bar-wrap {
+    width: 100%; height: 4px; background: #e8eaed;
+    border-radius: 4px; overflow: hidden; margin: 10px 0;
+  }
+  .progress-bar-fill {
+    height: 100%; width: 0%; background: linear-gradient(90deg, #4a7de0, #7aa3ff);
+    border-radius: 4px; transition: width 0.4s ease;
+  }
+
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0;
+  }
+  .stat-card {
+    background: #f5f6f8; border-radius: 8px; padding: 10px 12px;
+  }
+  .stat-card .stat-label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .stat-value { font-size: 16px; color: #1a1a2e; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+  /* ─── Loss Chart ─── */
+  .chart-wrap {
+    background: #fafbfc; border: 1px solid #e8eaed; border-radius: 8px;
+    padding: 12px; margin: 10px 0; position: relative;
+  }
+  .chart-wrap canvas { width: 100%; height: 80px; display: block; }
+  .chart-empty {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #bbb; font-size: 12px;
+  }
+
+  /* ─── Logs ─── */
+  .log-area {
+    flex: 1; overflow-y: auto; padding: 12px 20px;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 11px; line-height: 1.7; color: #666;
+    background: #fff;
+  }
+  .log-area .log-colmap { color: #d48a00; }
+  .log-area .log-training { color: #4a7de0; }
+  .log-area .log-export { color: #27ae60; }
+  .log-area .log-error { color: #e74c3c; }
+  .log-area .log-info { color: #888; }
+  .log-entry { animation: logFade 0.15s ease; }
+  @keyframes logFade { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ─── Result ─── */
+  .result-section { display: none; }
+  .result-section.active { display: block; }
+  .result-info {
+    background: #f0faf4; border: 1px solid #c8e6d0; border-radius: 8px; padding: 12px; margin: 10px 0;
+  }
+  .result-info p { font-size: 12px; color: #555; margin-bottom: 4px; }
+  .result-info .path { color: #4a7de0; font-family: monospace; font-size: 11px; word-break: break-all; }
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #ccc; }
+
+  /* ─── Empty State ─── */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; color: #ccc; padding: 40px;
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+  .empty-state p { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ═══ Header ═══ -->
+<header>
+  <div>
+    <h1>3DGS <span>训练工作室</span></h1>
+  </div>
+  <div class="subtitle">3D Gaussian Splatting · 本地部署</div>
+</header>
+
+<!-- ═══ Body ═══ -->
+<div class="container">
+
+  <!-- ─── Sidebar ─── -->
+  <div class="sidebar">
+
+    <!-- 照片选择 -->
+    <div class="panel folder-picker">
+      <div class="panel-title">照片文件夹</div>
+      <label for="folder-input">
+        <div class="icon">📁</div>
+        <div class="label-text">选择照片文件夹</div>
+        <div class="hint">30-100 张 JPEG/PNG，覆盖每个角度</div>
+      </label>
+      <input type="file" id="folder-input" webkitdirectory multiple>
+      <div id="folder-path"></div>
+      <div id="folder-count"></div>
+    </div>
+
+    <!-- 参数 -->
+    <div class="panel">
+      <div class="panel-title">训练参数</div>
+      <div class="steps-row">
+        <label>训练步数</label>
+        <input type="number" id="steps-input" value="30000" min="1000" max="100000" step="1000">
+      </div>
+    </div>
+
+    <!-- 控制按钮 -->
+    <div class="panel">
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-start" onclick="startTraining()">开始训练</button>
+        <button class="btn btn-danger" id="btn-cancel" onclick="cancelTraining()" disabled>取消</button>
+      </div>
+    </div>
+
+    <!-- 进度 -->
+    <div class="panel progress-section" id="progress-section">
+      <div class="panel-title">训练进度</div>
+      <div>
+        <span class="phase-badge phase-colmap" id="phase-badge">准备中</span>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">步数</div>
+          <div class="stat-value" id="stat-step">0 / 30000</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Loss</div>
+          <div class="stat-value" id="stat-loss">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">高斯点数</div>
+          <div class="stat-value" id="stat-pts">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">进度</div>
+          <div class="stat-value" id="stat-pct">0%</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="loss-chart"></canvas>
+        <div class="chart-empty" id="chart-empty">损失曲线</div>
+      </div>
+    </div>
+
+    <!-- 结果 -->
+    <div class="panel result-section" id="result-section">
+      <div class="panel-title">训练完成</div>
+      <div class="result-info">
+        <p>模型已生成</p>
+        <div class="path" id="result-path"></div>
+      </div>
+      <button class="btn btn-success" id="btn-view" onclick="viewResult()">在 3D 查看器中打开</button>
+    </div>
+
+  </div>
+
+  <!-- ─── Main: Logs ─── -->
+  <div class="main">
+    <div class="panel" style="flex-shrink:0; padding: 12px 20px; border-bottom: 1px solid #eef0f2; background: #fff;">
+      <span class="panel-title" style="margin-bottom:0;">运行日志</span>
+    </div>
+    <div class="log-area" id="log-area">
+      <div class="empty-state" id="empty-state">
+        <div class="icon">◈</div>
+        <p>选择照片文件夹并点击"开始训练"</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  State
+// ══════════════════════════════════════════════════
+let ws = null;
+let trainingActive = false;
+let trainingDone = false;
+let lossData = [];
+let chartCanvas = null;
+let chartCtx = null;
+
+const MAX_LOG = 500;
+const LOSS_HISTORY = 3000;
+
+// ══════════════════════════════════════════════════
+//  DOM refs
+// ══════════════════════════════════════════════════
+const folderInput = document.getElementById('folder-input');
+const folderPath = document.getElementById('folder-path');
+const folderCount = document.getElementById('folder-count');
+const stepsInput = document.getElementById('steps-input');
+const btnStart = document.getElementById('btn-start');
+const btnCancel = document.getElementById('btn-cancel');
+const btnView = document.getElementById('btn-view');
+const progressSection = document.getElementById('progress-section');
+const resultSection = document.getElementById('result-section');
+const progressFill = document.getElementById('progress-fill');
+const phaseBadge = document.getElementById('phase-badge');
+const statStep = document.getElementById('stat-step');
+const statLoss = document.getElementById('stat-loss');
+const statPts = document.getElementById('stat-pts');
+const statPct = document.getElementById('stat-pct');
+const logArea = document.getElementById('log-area');
+const emptyState = document.getElementById('empty-state');
+const resultPath = document.getElementById('result-path');
+const chartEmpty = document.getElementById('chart-empty');
+
+// ══════════════════════════════════════════════════
+//  Folder picker
+// ══════════════════════════════════════════════════
+folderInput.addEventListener('change', () => {
+  const files = folderInput.files;
+  if (!files || files.length === 0) {
+    folderPath.textContent = '';
+    folderCount.textContent = '';
+    return;
+  }
+  const first = files[0];
+  const path = first.webkitRelativePath || first.name;
+  const rootDir = path.split('/')[0];
+  folderPath.textContent = `📂 ${rootDir}`;
+
+  const imgCount = Array.from(files).filter(f =>
+    /\.(jpg|jpeg|png|webp|bmp)$/i.test(f.name)
+  ).length;
+  folderCount.textContent = `找到 ${imgCount} 张照片`;
+});
+
+// ══════════════════════════════════════════════════
+//  WebSocket
+// ══════════════════════════════════════════════════
+function connectWS() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+  ws.onopen = () => { /* ready */ };
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      handleWSMessage(msg);
+    } catch { /* ignore parse errors */ }
+  };
+  ws.onclose = () => {
+    if (trainingActive) {
+      setTimeout(connectWS, 1000);
+    }
+  };
+  ws.onerror = () => ws && ws.close();
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'phase':
+      updatePhase(msg.phase, msg.message || '');
+      break;
+    case 'progress':
+      updateProgress(msg);
+      break;
+    case 'log':
+      appendLog(msg.text || '');
+      break;
+    case 'done':
+      onTrainingDone(msg);
+      break;
+    case 'error':
+      onTrainingError(msg);
+      break;
+    case 'cancelled':
+      onTrainingCancelled();
+      break;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  Training Actions
+// ══════════════════════════════════════════════════
+async function startTraining() {
+  const files = folderInput.files;
+  if (!files || files.length === 0) {
+    appendLog('[错误] 请先选择照片文件夹', 'error');
+    return;
+  }
+
+  const first = files[0];
+  const guessedPath = first.webkitRelativePath || first.name;
+  const rootDir = guessedPath.split('/')[0];
+
+  const imagesDir = prompt('请输入照片文件夹的完整路径：', rootDir);
+  if (!imagesDir) return;
+
+  const steps = parseInt(stepsInput.value) || 30000;
+
+  trainingActive = true;
+  trainingDone = false;
+  lossData = [];
+  btnStart.disabled = true;
+  btnCancel.disabled = false;
+  btnView.style.display = 'none';
+  progressSection.classList.add('active');
+  resultSection.classList.remove('active');
+  emptyState && (emptyState.style.display = 'none');
+  chartEmpty && (chartEmpty.style.display = 'block');
+  clearChart();
+  logArea.scrollTop = logArea.scrollHeight;
+
+  updatePhase('colmap', 'COLMAP 特征提取中...');
+
+  try {
+    const resp = await fetch('/api/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images_dir: imagesDir, steps }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      appendLog('[错误] ' + data.error, 'error');
+      trainingActive = false;
+      btnStart.disabled = false;
+      btnCancel.disabled = true;
+      return;
+    }
+    appendLog('[信息] 训练已启动', 'info');
+    appendLog(`[信息] 输出目录: ${data.output_dir}`, 'info');
+  } catch (err) {
+    appendLog('[错误] 启动失败: ' + err.message, 'error');
+    trainingActive = false;
+    btnStart.disabled = false;
+    btnCancel.disabled = true;
+  }
+}
+
+async function cancelTraining() {
+  if (!trainingActive) return;
+  try {
+    await fetch('/api/cancel', { method: 'POST' });
+    appendLog('[信息] 正在取消训练...', 'info');
+  } catch { /* ignore */ }
+}
+
+function viewResult() {
+  const path = resultPath.textContent;
+  if (path) {
+    window.open(`/viewer?splat=${encodeURIComponent(path)}`, '_blank');
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  UI Updates
+// ══════════════════════════════════════════════════
+function updatePhase(phase, message) {
+  const badges = {
+    colmap: ['COLMAP', 'phase-colmap'],
+    training: ['训练中', 'phase-training'],
+    exporting: ['导出中', 'phase-exporting'],
+    done: ['已完成', 'phase-done'],
+    error: ['出错', 'phase-error'],
+  };
+  const [label, cls] = badges[phase] || [phase, 'phase-colmap'];
+  phaseBadge.textContent = label;
+  phaseBadge.className = 'phase-badge ' + cls;
+  if (message) appendLog(`[${label}] ${message}`, phase === 'error' ? 'error' : phase);
+}
+
+function updateProgress(msg) {
+  const pct = msg.pct || 0;
+  const step = msg.step || 0;
+  const total = msg.total || 30000;
+  const loss = msg.loss;
+  const pts = msg.pts || 0;
+
+  progressFill.style.width = pct + '%';
+  statStep.textContent = `${step} / ${total}`;
+  statPts.textContent = pts.toLocaleString();
+  statPct.textContent = pct + '%';
+
+  if (loss !== undefined) {
+    statLoss.textContent = loss.toFixed(4);
+    addLossPoint(loss);
+  }
+}
+
+function onTrainingDone(msg) {
+  trainingActive = false;
+  trainingDone = true;
+  btnStart.disabled = false;
+  btnCancel.disabled = true;
+  progressFill.style.width = '100%';
+  statPct.textContent = '100%';
+  updatePhase('done', '训练完成！');
+
+  resultSection.classList.add('active');
+  btnView.style.display = 'block';
+  resultPath.textContent = msg.splat || msg.output_dir || '';
+  appendLog('[信息] 训练完成！', 'info');
+  if (msg.splat) {
+    appendLog(`[信息] 模型文件: ${msg.splat}`, 'info');
+  }
+}
+
+function onTrainingError(msg) {
+  trainingActive = false;
+  btnStart.disabled = false;
+  btnCancel.disabled = true;
+  updatePhase('error', msg.message || '未知错误');
+  appendLog('[错误] ' + (msg.message || '未知错误'), 'error');
+}
+
+function onTrainingCancelled() {
+  trainingActive = false;
+  btnStart.disabled = false;
+  btnCancel.disabled = true;
+  appendLog('[信息] 训练已取消', 'info');
+}
+
+// ══════════════════════════════════════════════════
+//  Log
+// ══════════════════════════════════════════════════
+function appendLog(text, cls) {
+  if (!text) return;
+
+  if (emptyState && emptyState.style.display !== 'none') {
+    emptyState.style.display = 'none';
+  }
+
+  if (!cls) {
+    if (/COLMAP|特征|匹配|colmap/i.test(text)) cls = 'colmap';
+    else if (/3DGS|训练|step|loss|pts/i.test(text)) cls = 'training';
+    else if (/导出|保存|splat|ply/i.test(text)) cls = 'export';
+    else if (/错误|error|fail/i.test(text)) cls = 'error';
+    else cls = 'info';
+  }
+
+  const div = document.createElement('div');
+  div.className = 'log-entry log-' + cls;
+  div.textContent = text;
+  logArea.appendChild(div);
+
+  while (logArea.children.length > MAX_LOG) {
+    logArea.removeChild(logArea.firstChild);
+  }
+
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════
+//  Loss Chart
+// ══════════════════════════════════════════════════
+function initChart() {
+  chartCanvas = document.getElementById('loss-chart');
+  chartCtx = chartCanvas.getContext('2d');
+  resizeChart();
+}
+
+function resizeChart() {
+  if (!chartCanvas) return;
+  const rect = chartCanvas.parentElement.getBoundingClientRect();
+  chartCanvas.width = chartCanvas.clientWidth || rect.width - 24 || 260;
+  chartCanvas.height = chartCanvas.clientHeight || 80;
+  drawChart();
+}
+
+function clearChart() {
+  lossData = [];
+  if (chartCtx) {
+    chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+  }
+}
+
+function addLossPoint(loss) {
+  lossData.push(loss);
+  if (lossData.length > LOSS_HISTORY) lossData.shift();
+  drawChart();
+}
+
+function drawChart() {
+  if (!chartCtx || lossData.length < 2) return;
+  const ctx = chartCtx;
+  const w = chartCanvas.width;
+  const h = chartCanvas.height;
+
+  if (chartEmpty) chartEmpty.style.display = 'none';
+
+  ctx.clearRect(0, 0, w, h);
+
+  const minLoss = Math.max(0, Math.min(...lossData) * 0.9);
+  const maxLoss = Math.max(...lossData) * 1.1;
+  const range = maxLoss - minLoss || 1;
+
+  const data = lossData.slice(-Math.min(lossData.length, 600));
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(0,0,0,0.04)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = (h / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  // Loss line
+  ctx.strokeStyle = '#4a7de0';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < data.length; i++) {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((data[i] - minLoss) / range) * (h - 4) - 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Area fill
+  const lastIdx = data.length - 1;
+  ctx.lineTo((lastIdx / (lastIdx || 1)) * w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(74,125,224,0.06)';
+  ctx.fill();
+}
+
+// ══════════════════════════════════════════════════
+//  Init
+// ══════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  initChart();
+  connectWS();
+});
+window.addEventListener('resize', resizeChart);
+</script>
+
+</body>
+</html>

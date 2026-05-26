@@ -84,7 +84,7 @@ echo.
 echo [4/5] 安装 gsplat 和其他依赖...
 
 :: 先安装基础依赖
-"%VENV_PIP%" install numpy>=1.26.0 Pillow>=10.0.0 tqdm>=4.66.0
+"%VENV_PIP%" install numpy>=1.26.0 Pillow>=10.0.0 tqdm>=4.66.0 fastapi uvicorn
 
 :: 安装 gsplat - 优先使用预编译 wheel
 echo    下载 gsplat 预编译 wheel...
@@ -143,7 +143,8 @@ echo.
 echo =============================================
 echo  安装完成！
 echo.
-echo  使用: 把照片文件夹拖到 run.bat 上
-echo  查看: 打开 viewer.html，拖入 .splat 文件
+echo  命令行: 把照片文件夹拖到 run.bat 上
+echo  Web 界面: 双击 run_web.bat，浏览器打开 http://localhost:8080
+echo  查看: 在 Web 界面点击查看按钮或打开 viewer.html
 echo =============================================
 pause
