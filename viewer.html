@@ -26,12 +26,6 @@
     transition: all 0.3s; background: rgba(255,255,255,0.02);
     position: relative; overflow: hidden;
   }
-  .drop-zone::before {
-    content: ''; position: absolute; inset: -1px;
-    background: conic-gradient(from 0deg, transparent, rgba(91,141,239,0.2), transparent, rgba(91,141,239,0.2), transparent);
-    opacity: 0; transition: opacity 0.4s;
-  }
-  .drop-zone:hover::before { opacity: 1; }
   .drop-zone:hover { border-color: rgba(91,141,239,0.3); background: rgba(91,141,239,0.04); }
   .drop-zone .icon { font-size: 36px; margin-bottom: 10px; position: relative; z-index: 1; }
   .drop-zone .label { color: #aaa; font-size: 14px; position: relative; z-index: 1; }
@@ -81,7 +75,7 @@
   <h1>场景查看器</h1>
   <p>Gaussian Splatting · 本地部署</p>
   <div class="drop-zone" id="dropZone">
-    <div class="icon">⛶</div>
+    <div class="icon">&#x26F6;</div>
     <div class="label">拖拽 <strong>.splat</strong> 文件到此处</div>
     <div class="hint">或点击选择</div>
   </div>
@@ -99,8 +93,8 @@
 </div>
 <div id="fps">-- fps</div>
 <div id="toolbar">
-  <button id="btnReset">↺ 重置</button>
-  <button id="btnFullscreen">⛶ 全屏</button>
+  <button id="btnReset">&#x21BA; 重置</button>
+  <button id="btnFullscreen">&#x26F6; 全屏</button>
 </div>
 <div id="info"></div>
 
@@ -128,7 +122,7 @@ class SplatViewer {
     this.camera.position.set(0, 1.6, 3);
 
     this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: true, alpha: false, powerPreference: "high-performance",
+      canvas, antialias: false, alpha: false, powerPreference: "high-performance",
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.setSize(canvas.width, canvas.height);
@@ -145,6 +139,7 @@ class SplatViewer {
     this.composer.addPass(new OutputPass());
 
     this.splatMesh = null;
+    this.splatData = null;
     this.sceneCenter = new THREE.Vector3(0, 0, 0);
     this.sceneRadius = 3;
     this.yaw = -Math.PI / 4;
@@ -173,75 +168,159 @@ class SplatViewer {
 
     const positions = new Float32Array(vertexCount * 3);
     const colors = new Float32Array(vertexCount * 3);
-    const sizes = new Float32Array(vertexCount);
     const opacities = new Float32Array(vertexCount);
+    const scales = new Float32Array(vertexCount * 3);
+    const quats = new Float32Array(vertexCount * 4);
 
-    let maxSize = 0;
+    let maxScale = 0;
     for (let i = 0; i < vertexCount; i++) {
       const o = i * 32;
-      positions[i*3] = view.getFloat32(o, true);
-      positions[i*3+1] = view.getFloat32(o+4, true);
-      positions[i*3+2] = view.getFloat32(o+8, true);
-      colors[i*3] = view.getUint8(o+12) / 255;
-      colors[i*3+1] = view.getUint8(o+13) / 255;
-      colors[i*3+2] = view.getUint8(o+14) / 255;
-      opacities[i] = view.getUint8(o+15) / 255;
-      const sx = Math.abs(view.getFloat32(o+16, true));
-      const sy = Math.abs(view.getFloat32(o+20, true));
-      const sz = Math.abs(view.getFloat32(o+24, true));
-      const s = Math.max(sx, sy, sz);
-      sizes[i] = s;
-      if (s > maxSize) maxSize = s;
+      const px = view.getFloat32(o, true);
+      const py = view.getFloat32(o + 4, true);
+      positions[i * 3] = px;
+      positions[i * 3 + 1] = py;
+      positions[i * 3 + 2] = view.getFloat32(o + 8, true);
+
+      colors[i * 3] = view.getUint8(o + 12) / 255;
+      colors[i * 3 + 1] = view.getUint8(o + 13) / 255;
+      colors[i * 3 + 2] = view.getUint8(o + 14) / 255;
+      opacities[i] = view.getUint8(o + 15) / 255;
+
+      const sx = Math.abs(view.getFloat32(o + 16, true));
+      const sy = Math.abs(view.getFloat32(o + 20, true));
+      const sz = Math.abs(view.getFloat32(o + 24, true));
+      scales[i * 3] = sx;
+      scales[i * 3 + 1] = sy;
+      scales[i * 3 + 2] = sz;
+      if (sx > maxScale) maxScale = sx;
+      if (sy > maxScale) maxScale = sy;
+      if (sz > maxScale) maxScale = sz;
+
+      // 解包四元数: uint8 [0,255] → float [-1,1]
+      quats[i * 4] = (view.getUint8(o + 28) - 128) / 128;
+      quats[i * 4 + 1] = (view.getUint8(o + 29) - 128) / 128;
+      quats[i * 4 + 2] = (view.getUint8(o + 30) - 128) / 128;
+      quats[i * 4 + 3] = (view.getUint8(o + 31) - 128) / 128;
     }
-    this.createMesh(positions, colors, opacities, sizes, maxSize, vertexCount);
+
+    this.splatData = {
+      positions, colors, opacities, scales, quats,
+      count: vertexCount, maxScale
+    };
+    this.createMesh();
   }
 
-  createMesh(positions, colors, opacities, sizes, maxSize, count) {
+  createMesh() {
     if (this.splatMesh) {
       this.scene.remove(this.splatMesh);
       this.splatMesh.geometry.dispose();
       this.splatMesh.material.dispose();
     }
 
+    const d = this.splatData;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    geo.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+    geo.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(d.colors, 3));
+    geo.setAttribute('scale', new THREE.BufferAttribute(d.scales, 3));
+    geo.setAttribute('quat', new THREE.BufferAttribute(d.quats, 4));
+    geo.setAttribute('opacity', new THREE.BufferAttribute(d.opacities, 1));
 
     const mat = new THREE.ShaderMaterial({
       uniforms: {
-        uMaxSize: { value: maxSize || 0.01 },
-        uPixelRatio: { value: this.renderer.getPixelRatio() },
+        uFocal: { value: new THREE.Vector2(1, 1) },
+        uViewport: { value: new THREE.Vector2(1, 1) },
       },
-      vertexShader: `
-        attribute float size;
+      vertexShader: /* glsl */ `
+        attribute vec3 scale;
+        attribute vec4 quat;
         attribute float opacity;
         attribute vec3 color;
+
+        varying vec4 vColor;
         varying float vOpacity;
-        varying vec3 vColor;
-        uniform float uMaxSize;
-        uniform float uPixelRatio;
+        varying mat2 vCov2D;
+
+        uniform vec2 uFocal;
+        uniform vec2 uViewport;
+
+        mat3 quatToMat3(vec4 q) {
+          float qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+          float x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
+          float xx = qx * x2, yy = qy * y2, zz = qz * z2;
+          float xy = qx * y2, xz = qx * z2, yz = qy * z2;
+          float wx = qw * x2, wy = qw * y2, wz = qw * z2;
+          return mat3(
+            1.0 - (yy + zz), xy - wz,         xz + wy,
+            xy + wz,         1.0 - (xx + zz), yz - wx,
+            xz - wy,         yz + wx,         1.0 - (xx + yy)
+          );
+        }
 
         void main() {
-          vOpacity = opacity;
-          vColor = color;
           vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-          float projSize = size / max(uMaxSize, 0.001) * 200.0 * uPixelRatio / -mvPos.z;
-          gl_PointSize = clamp(projSize, 0.5, 600.0);
           gl_Position = projectionMatrix * mvPos;
+
+          vColor = vec4(color, 1.0);
+          vOpacity = opacity;
+
+          // 3D 协方差 = W * R * S * S^T * R^T * W^T
+          mat3 R = quatToMat3(quat);
+          mat3 S = mat3(scale.x, 0, 0, 0, scale.y, 0, 0, 0, scale.z);
+          mat3 W = mat3(modelViewMatrix);
+          mat3 M = W * R * S;
+          mat3 cov3D = M * transpose(M);
+
+          // 投影 Jacobian J (2x3): 将视空间 → 屏幕空间
+          float z = mvPos.z;
+          float iz = 1.0 / max(abs(z), 0.001);
+          float fx = uFocal.x * uViewport.x * 0.5;
+          float fy = uFocal.y * uViewport.y * 0.5;
+
+          // J = [[fx/z, 0, -fx*x/z^2], [0, fy/z, -fy*y/z^2]]
+          float j00 = fx * iz;
+          float j02 = -fx * mvPos.x * iz * iz;
+          float j11 = fy * iz;
+          float j12 = -fy * mvPos.y * iz * iz;
+
+          // Σ_2D = J * cov3D * J^T (2x2)
+          // 展开: Σ_ij = sum_k sum_l J_ik * cov_kl * J_jl
+          float cov00 = cov3D[0][0], cov01 = cov3D[0][1], cov02 = cov3D[0][2];
+          float cov11 = cov3D[1][1], cov12 = cov3D[1][2];
+          float cov22 = cov3D[2][2];
+          // cov 对称: cov10=cov01, cov20=cov02, cov21=cov12
+
+          vCov2D[0][0] = j00*j00*cov00 + 2.0*j00*j02*cov02 + j02*j02*cov22;
+          vCov2D[0][1] = j00*j11*cov01 + j00*j12*cov02 + j02*j11*cov12 + j02*j12*cov22;
+          vCov2D[1][0] = vCov2D[0][1];
+          vCov2D[1][1] = j11*j11*cov11 + 2.0*j11*j12*cov12 + j12*j12*cov22;
+
+          // 防止退化
+          vCov2D[0][0] += 0.3;
+          vCov2D[1][1] += 0.3;
         }
       `,
-      fragmentShader: `
+      fragmentShader: /* glsl */ `
+        varying vec4 vColor;
         varying float vOpacity;
-        varying vec3 vColor;
+        varying mat2 vCov2D;
 
         void main() {
-          vec2 c = gl_PointCoord - 0.5;
-          float d2 = dot(c, c);
-          if (d2 > 0.25) discard;
-          float alpha = exp(-8.0 * d2) * vOpacity;
-          gl_FragColor = vec4(vColor, alpha);
+          vec2 pt = gl_PointCoord - 0.5;
+
+          // Σ^{-1} = (1/det) * [[d, -b], [-c, a]]
+          float a = vCov2D[0][0];
+          float b = vCov2D[0][1];
+          float d = vCov2D[1][1];
+          float det = a * d - b * b;
+          if (det < 0.0001) det = 0.0001;
+          float invDet = 1.0 / det;
+
+          float dist2 = invDet * (d * pt.x * pt.x - 2.0 * b * pt.x * pt.y + a * pt.y * pt.y);
+
+          float alpha = exp(-0.5 * dist2) * vOpacity;
+          if (alpha < 0.004) discard;
+
+          gl_FragColor = vec4(vColor.rgb, alpha);
         }
       `,
       transparent: true,
@@ -253,6 +332,7 @@ class SplatViewer {
     this.splatMesh.frustumCulled = false;
     this.scene.add(this.splatMesh);
 
+    // 计算包围球
     geo.computeBoundingSphere();
     if (geo.boundingSphere) {
       const c = geo.boundingSphere.center;
@@ -262,8 +342,25 @@ class SplatViewer {
       this.camera.position.set(c.x, c.y + Math.max(r * 0.5, 1.6), c.z + r * 1.8);
     }
 
+    // 更新相机相关的 uniform + 一次性深度排序
+    this.updateFocalUniform();
+    this.sortByDepth();
+
     document.getElementById('loader').classList.add('hidden');
     document.getElementById('info').style.display = 'block';
+  }
+
+  updateFocalUniform() {
+    if (!this.splatMesh) return;
+    // 从相机内参推导焦距（归一化设备坐标）
+    const fov = this.camera.fov * Math.PI / 180;
+    const fy = 1.0 / Math.tan(fov / 2);
+    const fx = fy; // 假设方形像素
+    this.splatMesh.material.uniforms.uFocal.value.set(fx, fy);
+    this.splatMesh.material.uniforms.uViewport.value.set(
+      this.renderer.domElement.width,
+      this.renderer.domElement.height
+    );
   }
 
   setupControls() {
@@ -288,7 +385,7 @@ class SplatViewer {
     window.addEventListener('mousemove', (e) => {
       if (!dragging) return;
       this.yaw -= (e.clientX - lx) * 0.004;
-      this.pitch = Math.max(-Math.PI/2.3, Math.min(Math.PI/2.3, this.pitch - (e.clientY - ly) * 0.004));
+      this.pitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch - (e.clientY - ly) * 0.004));
       lx = e.clientX; ly = e.clientY;
     });
 
@@ -297,6 +394,53 @@ class SplatViewer {
     }, { passive: true });
     this.canvas.addEventListener('dblclick', () => this.resetView());
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  sortByDepth() {
+    if (!this.splatData || !this.splatMesh) return;
+    const d = this.splatData;
+    const positions = this.splatMesh.geometry.attributes.position.array;
+    const count = d.count;
+
+    // 计算相机当前视线方向（一次性排序用）
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+
+    if (!this._sortIndices || this._sortIndices.length !== count) {
+      this._sortIndices = new Uint32Array(count);
+      for (let i = 0; i < count; i++) this._sortIndices[i] = i;
+    }
+    if (!this._sortDepths || this._sortDepths.length !== count) {
+      this._sortDepths = new Float32Array(count);
+    }
+
+    for (let i = 0; i < count; i++) {
+      this._sortDepths[i] =
+        positions[i * 3] * camDir.x +
+        positions[i * 3 + 1] * camDir.y +
+        positions[i * 3 + 2] * camDir.z;
+    }
+
+    // 远处先渲染（painter's algorithm）
+    this._sortIndices.sort((a, b) => this._sortDepths[b] - this._sortDepths[a]);
+
+    // 重排所有属性（仅加载时执行一次）
+    const attrs = ['position', 'color', 'scale', 'quat', 'opacity'];
+    for (const name of attrs) {
+      const attr = this.splatMesh.geometry.attributes[name];
+      if (!attr) continue;
+      const arr = attr.array;
+      const itemSize = attr.itemSize;
+      const sorted = new arr.constructor(count * itemSize);
+      for (let i = 0; i < count; i++) {
+        const src = this._sortIndices[i] * itemSize;
+        const dst = i * itemSize;
+        for (let j = 0; j < itemSize; j++) {
+          sorted[dst + j] = arr[src + j];
+        }
+      }
+      this.splatMesh.geometry.setAttribute(name, new THREE.BufferAttribute(sorted, itemSize));
+    }
   }
 
   update(dt) {
@@ -314,6 +458,8 @@ class SplatViewer {
       Math.cos(this.yaw) * Math.cos(this.pitch)
     );
     this.camera.lookAt(this.camera.position.clone().add(lookDir));
+
+    this.updateFocalUniform();
     this.composer.render(dt);
   }
 
@@ -323,6 +469,7 @@ class SplatViewer {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
+    this.updateFocalUniform();
   }
 
   resetView() {

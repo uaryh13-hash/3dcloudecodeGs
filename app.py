@@ -6,13 +6,9 @@ import asyncio
 import json
 import os
 import re
-import subprocess
 import sys
-import shutil
-import threading
 import time
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
@@ -37,7 +33,7 @@ class TrainingState:
         self.total_steps = DEFAULT_STEPS
         self.loss = 0.0
         self.pts = 0
-        self.phase = ""  # colmap, training, exporting, done, error
+        self.phase = ""
         self.images_dir = ""
         self.output_dir = ""
         self.error_msg = ""
@@ -46,9 +42,8 @@ class TrainingState:
 
 state = TrainingState()
 
-# ─── WebSocket ───────────────────────────────────────────────────────
+# ─── WebSocket 广播 ───────────────────────────────────────────────────
 async def broadcast(msg: dict):
-    """向所有连接的 WebSocket 客户端广播消息。"""
     dead = set()
     for ws in state.ws_clients:
         try:
@@ -57,8 +52,9 @@ async def broadcast(msg: dict):
             dead.add(ws)
     state.ws_clients -= dead
 
+
 async def training_worker(images_dir: str, output_dir: str, steps: int):
-    """在后台线程中运行训练，通过 broadcast 发送进度。"""
+    """纯 async 训练任务 — 使用 asyncio 子进程，不阻塞事件循环。"""
     state.running = True
     state.cancelled = False
     state.images_dir = images_dir
@@ -76,43 +72,51 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
         env["PYTHONUNBUFFERED"] = "1"
 
         # 自动查找 COLMAP
-        colmap_candidates = [
-            os.path.join(SCRIPT_DIR, "colmap", "bin", "colmap.exe"),
-        ]
-        for c in colmap_candidates:
-            if os.path.exists(c):
-                env["COLMAP_EXE"] = c
-                break
+        colmap_exe = os.path.join(SCRIPT_DIR, "colmap", "bin", "colmap.exe")
+        if os.path.exists(colmap_exe):
+            env["COLMAP_EXE"] = colmap_exe
 
         state.phase = "colmap"
-        await broadcast({"type": "phase", "phase": "colmap", "message": "COLMAP 特征提取与匹配中...如果照片分辨率很高，这一步可能需要 5-30 分钟"})
+        await broadcast({"type": "phase", "phase": "colmap",
+                         "message": "COLMAP 特征提取与匹配中...如果照片分辨率很高，这一步可能需要 5-30 分钟"})
 
-        proc = subprocess.Popen(
-            [sys.executable, TRAIN_SCRIPT, images_dir, "--output", output_dir, "--steps", str(steps)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            env=env, text=True, bufsize=1,
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, TRAIN_SCRIPT, images_dir,
+            "--output", output_dir, "--steps", str(steps),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
         )
         state.process = proc
 
-        # 解析输出行
+        # 异步逐行读取输出
         tqdm_pattern = re.compile(
             r"训练 3DGS:\s*(?P<pct>\d+)%\|.*?\|\s*(?P<step>\d+)/(?P<total>\d+)"
             r"\[.*?,\s*(?P<loss>[\d.]+),.*?pts=(?P<pts>\d+)\]"
         )
-        colmap_pattern = re.compile(r"\[COLMAP\]")
         phase_pattern = re.compile(r"\[(COLMAP|3DGS|导出|初始化|数据)\]")
 
-        for line in proc.stdout:
+        while proc.stdout:
+            try:
+                line = await asyncio.wait_for(
+                    proc.stdout.readline(), timeout=3600.0
+                )
+            except asyncio.TimeoutError:
+                continue
+
+            if not line:
+                break
+
             if state.cancelled:
                 proc.terminate()
                 break
 
-            line = line.rstrip()
-            if not line:
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if not text:
                 continue
 
             # 检测阶段
-            phase_m = phase_pattern.search(line)
+            phase_m = phase_pattern.search(text)
             if phase_m:
                 p = phase_m.group(1)
                 if p == "COLMAP":
@@ -123,13 +127,12 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
                     state.phase = "exporting"
 
             # 解析 tqdm 进度
-            tqdm_m = tqdm_pattern.search(line)
+            tqdm_m = tqdm_pattern.search(text)
             if tqdm_m:
                 state.step = int(tqdm_m.group("step"))
                 state.total_steps = int(tqdm_m.group("total"))
                 state.loss = float(tqdm_m.group("loss"))
                 state.pts = int(tqdm_m.group("pts"))
-                # 计算预计剩余时间
                 elapsed = time.time() - state.start_time
                 eta = (elapsed / max(state.step, 1)) * (state.total_steps - state.step)
                 await broadcast({
@@ -143,14 +146,12 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
                     "eta": int(eta),
                 })
             else:
-                # 其他日志行
-                await broadcast({"type": "log", "text": line})
+                await broadcast({"type": "log", "text": text})
 
-            # 检测完成
-            if "全部完成" in line or "SPLAT 保存" in line:
+            if "全部完成" in text or "SPLAT 保存" in text:
                 state.phase = "done"
 
-        proc.wait()
+        await proc.wait()
         state.running = False
 
         if state.cancelled:
@@ -195,20 +196,19 @@ async def index():
     with open(index_path, "r", encoding="utf-8") as f:
         return f.read()
 
+
 @app.get("/viewer")
 async def viewer(splat: str = ""):
-    """返回 viewer.html，可指定 splat 文件路径。"""
     with open(VIEWER_HTML, "r", encoding="utf-8") as f:
         html = f.read()
     if splat:
-        # 注入 splat 路径到 URL 参数
         html = html.replace("</body>",
             f'<script>window.BUILTIN_SPLAT="{splat}";</script></body>')
     return HTMLResponse(html)
 
+
 @app.post("/api/start")
 async def start_training(data: dict):
-    """开始训练。"""
     if state.running:
         return {"error": "已有训练任务运行中"}
 
@@ -218,31 +218,26 @@ async def start_training(data: dict):
     if not images_dir or not os.path.isdir(images_dir):
         return {"error": "照片文件夹无效"}
 
-    # 创建输出目录
     output_dir = os.path.join(SCRIPT_DIR, "output", time.strftime("%Y%m%d_%H%M%S"))
     os.makedirs(output_dir, exist_ok=True)
 
-    # 启动后台训练
-    thread = threading.Thread(
-        target=lambda: asyncio.run(training_worker(images_dir, output_dir, steps)),
-        daemon=True,
-    )
-    thread.start()
+    # 使用 asyncio Task（不再用 threading + asyncio.run 反模式）
+    asyncio.create_task(training_worker(images_dir, output_dir, steps))
 
     return {"success": True, "output_dir": output_dir}
 
+
 @app.post("/api/cancel")
 async def cancel_training():
-    """取消训练。"""
     if state.process and state.running:
         state.cancelled = True
         state.process.terminate()
         return {"success": True}
     return {"error": "没有运行中的训练任务"}
 
+
 @app.get("/api/status")
 async def get_status():
-    """获取当前状态。"""
     return {
         "running": state.running,
         "phase": state.phase,
@@ -253,6 +248,7 @@ async def get_status():
         "error": state.error_msg,
         "cancelled": state.cancelled,
     }
+
 
 # ─── WebSocket ───────────────────────────────────────────────────────
 @app.websocket("/ws")
@@ -266,6 +262,7 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         state.ws_clients.discard(ws)
+
 
 # ─── 静态文件 ────────────────────────────────────────────────────────
 static_dir = os.path.join(SCRIPT_DIR, "static")
