@@ -83,7 +83,7 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
                 break
 
         state.phase = "colmap"
-        await broadcast({"type": "phase", "phase": "colmap", "message": "COLMAP 特征提取与匹配中..."})
+        await broadcast({"type": "phase", "phase": "colmap", "message": "COLMAP 特征提取与匹配中...如果照片分辨率很高，这一步可能需要 5-30 分钟"})
 
         proc = subprocess.Popen(
             [sys.executable, TRAIN_SCRIPT, images_dir, "--output", output_dir, "--steps", str(steps)],

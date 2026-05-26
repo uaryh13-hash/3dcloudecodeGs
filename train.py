@@ -279,13 +279,16 @@ def run_colmap(images_dir: str, output_dir: str):
     os.makedirs(sparse_dir, exist_ok=True)
 
     print("[COLMAP] 提取图像特征...")
+    print("[COLMAP] 如果照片分辨率很高，这一步可能需要 5-30 分钟")
     subprocess.run([
         COLMAP_EXE, "feature_extractor",
         "--database_path", db_path,
         "--image_path", images_dir,
         "--FeatureExtraction.use_gpu", "1",
         "--ImageReader.camera_model", "SIMPLE_RADIAL",
+        "--ImageReader.single_camera", "1",
         "--SiftExtraction.max_num_features", "8192",
+        "--SiftExtraction.max_image_size", "1600",
     ], check=True)
 
     print("[COLMAP] 特征匹配...")
