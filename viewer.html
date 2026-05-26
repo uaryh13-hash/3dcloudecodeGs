@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3DGS 场景查看器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; overflow: hidden; font-family: -apple-system, 'Segoe UI', sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+
+  #loader {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 20;
+    background: radial-gradient(ellipse at center, #141414 0%, #0a0a0a 100%);
+    transition: opacity 0.8s, visibility 0.8s;
+  }
+  #loader.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  #loader h1 { color: #fff; font-size: 22px; font-weight: 500; margin-bottom: 6px; letter-spacing: -0.3px; }
+  #loader p { color: #666; font-size: 13px; margin-bottom: 28px; }
+  .drop-zone {
+    border: 2px dashed rgba(255,255,255,0.12); border-radius: 14px;
+    padding: 40px 56px; text-align: center; cursor: pointer;
+    transition: all 0.3s; background: rgba(255,255,255,0.02);
+    position: relative; overflow: hidden;
+  }
+  .drop-zone::before {
+    content: ''; position: absolute; inset: -1px;
+    background: conic-gradient(from 0deg, transparent, rgba(91,141,239,0.2), transparent, rgba(91,141,239,0.2), transparent);
+    opacity: 0; transition: opacity 0.4s;
+  }
+  .drop-zone:hover::before { opacity: 1; }
+  .drop-zone:hover { border-color: rgba(91,141,239,0.3); background: rgba(91,141,239,0.04); }
+  .drop-zone .icon { font-size: 36px; margin-bottom: 10px; position: relative; z-index: 1; }
+  .drop-zone .label { color: #aaa; font-size: 14px; position: relative; z-index: 1; }
+  .drop-zone .hint { color: #555; font-size: 11px; margin-top: 6px; position: relative; z-index: 1; }
+  #progress-bar { width: 260px; height: 2px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 20px; overflow: hidden; display: none; }
+  #progress-fill { height: 100%; width: 0%; background: #5b8def; border-radius: 2px; transition: width 0.3s; }
+  #progress-text { color: #555; font-size: 11px; margin-top: 8px; display: none; }
+
+  #hud {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.06); border-radius: 12px;
+    padding: 10px 20px; color: rgba(255,255,255,0.5); font-size: 11px;
+    text-align: center; user-select: none; pointer-events: none;
+    transition: opacity 0.8s; z-index: 10;
+    white-space: nowrap;
+  }
+  #hud kbd {
+    display: inline-block; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 3px; padding: 0 5px; font-family: inherit; font-size: 10px;
+    line-height: 18px; margin: 0 1px; min-width: 20px; color: rgba(255,255,255,0.6);
+  }
+  #hud .sep { color: rgba(255,255,255,0.12); margin: 0 5px; }
+
+  #toolbar {
+    position: fixed; top: 14px; right: 16px; display: flex; gap: 6px; z-index: 10;
+  }
+  #toolbar button {
+    background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 7px; color: rgba(255,255,255,0.45); padding: 6px 12px;
+    font-size: 11px; cursor: pointer; transition: all 0.2s;
+    backdrop-filter: blur(8px);
+  }
+  #toolbar button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+  #info {
+    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.15); font-size: 11px; z-index: 10;
+    text-align: center; pointer-events: none; display: none;
+  }
+  #fps { position: fixed; top: 16px; left: 16px; color: rgba(255,255,255,0.15); font-size: 10px; font-family: monospace; z-index: 10; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <h1>场景查看器</h1>
+  <p>Gaussian Splatting · 本地部署</p>
+  <div class="drop-zone" id="dropZone">
+    <div class="icon">⛶</div>
+    <div class="label">拖拽 <strong>.splat</strong> 文件到此处</div>
+    <div class="hint">或点击选择</div>
+  </div>
+  <input type="file" id="fileInput" accept=".splat,.ply" hidden>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+  <div id="progress-text"></div>
+</div>
+
+<div id="hud">
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 漫游 &nbsp;<span class="sep">·</span>&nbsp;
+  拖拽环视 &nbsp;<span class="sep">·</span>&nbsp;
+  滚轮调速度 &nbsp;<span class="sep">·</span>&nbsp;
+  <kbd>Shift</kbd> 加速 &nbsp;<span class="sep">·</span>&nbsp;
+  <kbd>H</kbd> 隐藏
+</div>
+<div id="fps">-- fps</div>
+<div id="toolbar">
+  <button id="btnReset">↺ 重置</button>
+  <button id="btnFullscreen">⛶ 全屏</button>
+</div>
+<div id="info"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+class SplatViewer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(55, canvas.width / canvas.height, 0.05, 500);
+    this.camera.position.set(0, 1.6, 3);
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas, antialias: true, alpha: false, powerPreference: "high-performance",
+    });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setSize(canvas.width, canvas.height);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(canvas.width, canvas.height), 0.15, 0.3, 0.05
+    );
+    this.composer.addPass(bloom);
+    this.composer.addPass(new OutputPass());
+
+    this.splatMesh = null;
+    this.sceneCenter = new THREE.Vector3(0, 0, 0);
+    this.sceneRadius = 3;
+    this.yaw = -Math.PI / 4;
+    this.pitch = -0.15;
+    this.moveSpeed = 2.0;
+    this.keys = { w: false, a: false, s: false, d: false, shift: false };
+    this.clock = new THREE.Clock();
+
+    this.setupControls();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  async loadSplat(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    this.parseSplat(buf);
+  }
+
+  loadSplatFromBuffer(buf) { this.parseSplat(buf); }
+
+  parseSplat(buffer) {
+    const vertexCount = Math.floor(buffer.byteLength / 32);
+    const view = new DataView(buffer);
+    console.log(`加载 ${vertexCount} 个高斯点`);
+
+    const positions = new Float32Array(vertexCount * 3);
+    const colors = new Float32Array(vertexCount * 3);
+    const sizes = new Float32Array(vertexCount);
+    const opacities = new Float32Array(vertexCount);
+
+    let maxSize = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      const o = i * 32;
+      positions[i*3] = view.getFloat32(o, true);
+      positions[i*3+1] = view.getFloat32(o+4, true);
+      positions[i*3+2] = view.getFloat32(o+8, true);
+      colors[i*3] = view.getUint8(o+12) / 255;
+      colors[i*3+1] = view.getUint8(o+13) / 255;
+      colors[i*3+2] = view.getUint8(o+14) / 255;
+      opacities[i] = view.getUint8(o+15) / 255;
+      const sx = Math.abs(view.getFloat32(o+16, true));
+      const sy = Math.abs(view.getFloat32(o+20, true));
+      const sz = Math.abs(view.getFloat32(o+24, true));
+      const s = Math.max(sx, sy, sz);
+      sizes[i] = s;
+      if (s > maxSize) maxSize = s;
+    }
+    this.createMesh(positions, colors, opacities, sizes, maxSize, vertexCount);
+  }
+
+  createMesh(positions, colors, opacities, sizes, maxSize, count) {
+    if (this.splatMesh) {
+      this.scene.remove(this.splatMesh);
+      this.splatMesh.geometry.dispose();
+      this.splatMesh.material.dispose();
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    geo.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uMaxSize: { value: maxSize || 0.01 },
+        uPixelRatio: { value: this.renderer.getPixelRatio() },
+      },
+      vertexShader: `
+        attribute float size;
+        attribute float opacity;
+        attribute vec3 color;
+        varying float vOpacity;
+        varying vec3 vColor;
+        uniform float uMaxSize;
+        uniform float uPixelRatio;
+
+        void main() {
+          vOpacity = opacity;
+          vColor = color;
+          vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+          float projSize = size / max(uMaxSize, 0.001) * 200.0 * uPixelRatio / -mvPos.z;
+          gl_PointSize = clamp(projSize, 0.5, 600.0);
+          gl_Position = projectionMatrix * mvPos;
+        }
+      `,
+      fragmentShader: `
+        varying float vOpacity;
+        varying vec3 vColor;
+
+        void main() {
+          vec2 c = gl_PointCoord - 0.5;
+          float d2 = dot(c, c);
+          if (d2 > 0.25) discard;
+          float alpha = exp(-8.0 * d2) * vOpacity;
+          gl_FragColor = vec4(vColor, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    });
+
+    this.splatMesh = new THREE.Points(geo, mat);
+    this.splatMesh.frustumCulled = false;
+    this.scene.add(this.splatMesh);
+
+    geo.computeBoundingSphere();
+    if (geo.boundingSphere) {
+      const c = geo.boundingSphere.center;
+      const r = geo.boundingSphere.radius;
+      this.sceneCenter.copy(c);
+      this.sceneRadius = r;
+      this.camera.position.set(c.x, c.y + Math.max(r * 0.5, 1.6), c.z + r * 1.8);
+    }
+
+    document.getElementById('loader').classList.add('hidden');
+    document.getElementById('info').style.display = 'block';
+  }
+
+  setupControls() {
+    document.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if (k in this.keys) this.keys[k] = true;
+      if (e.key === 'h') {
+        const hud = document.getElementById('hud');
+        hud.style.opacity = hud.style.opacity === '0' ? '1' : '0';
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      const k = e.key.toLowerCase();
+      if (k in this.keys) this.keys[k] = false;
+    });
+
+    let dragging = false, lx = 0, ly = 0;
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) { dragging = true; lx = e.clientX; ly = e.clientY; }
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      this.yaw -= (e.clientX - lx) * 0.004;
+      this.pitch = Math.max(-Math.PI/2.3, Math.min(Math.PI/2.3, this.pitch - (e.clientY - ly) * 0.004));
+      lx = e.clientX; ly = e.clientY;
+    });
+
+    this.canvas.addEventListener('wheel', (e) => {
+      this.moveSpeed = Math.max(0.3, Math.min(15, this.moveSpeed - e.deltaY * 0.008));
+    }, { passive: true });
+    this.canvas.addEventListener('dblclick', () => this.resetView());
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  update(dt) {
+    const spd = this.moveSpeed * (this.keys.shift ? 3.5 : 1) * Math.min(dt, 0.05);
+    const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    const right = new THREE.Vector3(fwd.z, 0, -fwd.x);
+    if (this.keys.w) this.camera.position.addScaledVector(fwd, spd);
+    if (this.keys.s) this.camera.position.addScaledVector(fwd, -spd);
+    if (this.keys.a) this.camera.position.addScaledVector(right, -spd);
+    if (this.keys.d) this.camera.position.addScaledVector(right, spd);
+
+    const lookDir = new THREE.Vector3(
+      Math.sin(this.yaw) * Math.cos(this.pitch),
+      Math.sin(this.pitch),
+      Math.cos(this.yaw) * Math.cos(this.pitch)
+    );
+    this.camera.lookAt(this.camera.position.clone().add(lookDir));
+    this.composer.render(dt);
+  }
+
+  resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+    this.composer.setSize(w, h);
+  }
+
+  resetView() {
+    this.yaw = -Math.PI / 4;
+    this.pitch = -0.15;
+    const c = this.sceneCenter;
+    this.camera.position.set(c.x, c.y + Math.max(this.sceneRadius * 0.5, 1.6), c.z + this.sceneRadius * 1.8);
+  }
+}
+
+// ─── 启动 ──────────────────────────────────────────────────────────
+const canvas = document.createElement('canvas');
+document.body.prepend(canvas);
+const app = new SplatViewer(canvas);
+
+let fc = 0, ft = 0;
+function animate(t) {
+  requestAnimationFrame(animate);
+  app.update(app.clock.getDelta());
+  fc++;
+  if (t - ft > 1000) {
+    document.getElementById('fps').textContent = `${fc} fps`;
+    fc = 0; ft = t;
+  }
+}
+animate(0);
+
+// ─── 文件加载 ──────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const progressBar = document.getElementById('progress-bar');
+const progressFill = document.getElementById('progress-fill');
+const progressText = document.getElementById('progress-text');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(91,141,239,0.3)'; });
+dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'rgba(255,255,255,0.12)'; });
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault(); dropZone.style.borderColor = 'rgba(255,255,255,0.12)';
+  const file = e.dataTransfer.files[0];
+  if (file) loadFile(file);
+});
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+async function loadFile(file) {
+  progressBar.style.display = 'block';
+  progressText.style.display = 'block';
+  progressText.textContent = `加载 ${file.name}...`;
+
+  if (file.name.endsWith('.splat')) {
+    const buf = await file.arrayBuffer();
+    progressFill.style.width = '100%';
+    progressText.textContent = '渲染中...';
+    app.loadSplatFromBuffer(buf);
+    setTimeout(() => { progressBar.style.display = 'none'; progressText.style.display = 'none'; }, 400);
+  } else if (file.name.endsWith('.ply')) {
+    progressText.textContent = '.ply 格式暂不支持直接加载，请使用 .splat 格式';
+  }
+}
+
+document.getElementById('btnReset').addEventListener('click', () => app.resetView());
+document.getElementById('btnFullscreen').addEventListener('click', () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+});
+
+const params = new URLSearchParams(window.location.search);
+const splatUrl = params.get('splat');
+if (splatUrl) {
+  progressBar.style.display = 'block'; progressText.style.display = 'block';
+  progressText.textContent = '加载场景...';
+  app.loadSplat(splatUrl).catch(e => {
+    progressText.textContent = '加载失败，请直接拖拽 .splat 文件';
+  });
+}
+
+console.log('3DGS Viewer 已启动 — 拖拽 .splat 文件查看');
+</script>
+</body>
+</html>

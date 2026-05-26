@@ -1,0 +1,30 @@
+# 运行时输出
+output/
+
+# Python 虚拟环境（通过 setup.bat 创建）
+venv/
+
+# COLMAP 便携版（通过 setup.bat / download_colmap.bat 下载）
+colmap/
+
+# 测试数据
+test_data/
+test_data_synth/
+test_data_v2/
+test_data_real/
+test_colmap_output/
+test_colmap_v2/
+test_full_output/
+test_final/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 预编译 wheel 文件
+*.whl
+
+# 系统文件
+Thumbs.db
+.DS_Store
