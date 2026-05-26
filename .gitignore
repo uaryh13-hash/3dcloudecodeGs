@@ -25,6 +25,12 @@ __pycache__/
 # 预编译 wheel 文件
 *.whl
 
+# 安装程序编译输出
+dist/
+
+# Inno Setup 临时文件
+*.issproj
+
 # 系统文件
 Thumbs.db
 .DS_Store
