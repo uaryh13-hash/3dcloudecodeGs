@@ -240,6 +240,14 @@
           <div class="stat-label">进度</div>
           <div class="stat-value" id="stat-pct">0%</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-label">已用时间</div>
+          <div class="stat-value" id="stat-elapsed" style="font-size:13px;">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">预计剩余</div>
+          <div class="stat-value" id="stat-eta" style="font-size:13px; color:#4a7de0;">—</div>
+        </div>
       </div>
       <div class="chart-wrap">
         <canvas id="loss-chart"></canvas>
@@ -407,6 +415,8 @@ async function startTraining() {
   emptyState && (emptyState.style.display = 'none');
   chartEmpty && (chartEmpty.style.display = 'block');
   clearChart();
+  document.getElementById('stat-elapsed').textContent = '—';
+  document.getElementById('stat-eta').textContent = '—';
   logArea.scrollTop = logArea.scrollHeight;
 
   updatePhase('colmap', 'COLMAP 特征提取中...');
@@ -467,6 +477,16 @@ function updatePhase(phase, message) {
   if (message) appendLog(`[${label}] ${message}`, phase === 'error' ? 'error' : phase);
 }
 
+function formatTime(seconds) {
+  if (!seconds || seconds < 0) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 function updateProgress(msg) {
   const pct = msg.pct || 0;
   const step = msg.step || 0;
@@ -478,6 +498,13 @@ function updateProgress(msg) {
   statStep.textContent = `${step} / ${total}`;
   statPts.textContent = pts.toLocaleString();
   statPct.textContent = pct + '%';
+
+  if (msg.elapsed !== undefined) {
+    document.getElementById('stat-elapsed').textContent = formatTime(msg.elapsed);
+  }
+  if (msg.eta !== undefined && msg.eta > 0) {
+    document.getElementById('stat-eta').textContent = formatTime(msg.eta);
+  }
 
   if (loss !== undefined) {
     statLoss.textContent = loss.toFixed(4);

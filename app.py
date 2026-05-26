@@ -41,6 +41,7 @@ class TrainingState:
         self.images_dir = ""
         self.output_dir = ""
         self.error_msg = ""
+        self.start_time = 0.0
         self.ws_clients = set()
 
 state = TrainingState()
@@ -67,6 +68,7 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
     state.loss = 0.0
     state.pts = 0
     state.error_msg = ""
+    state.start_time = time.time()
 
     try:
         env = os.environ.copy()
@@ -127,6 +129,9 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
                 state.total_steps = int(tqdm_m.group("total"))
                 state.loss = float(tqdm_m.group("loss"))
                 state.pts = int(tqdm_m.group("pts"))
+                # 计算预计剩余时间
+                elapsed = time.time() - state.start_time
+                eta = (elapsed / max(state.step, 1)) * (state.total_steps - state.step)
                 await broadcast({
                     "type": "progress",
                     "step": state.step,
@@ -134,6 +139,8 @@ async def training_worker(images_dir: str, output_dir: str, steps: int):
                     "loss": state.loss,
                     "pts": state.pts,
                     "pct": int(tqdm_m.group("pct")),
+                    "elapsed": int(elapsed),
+                    "eta": int(eta),
                 })
             else:
                 # 其他日志行
